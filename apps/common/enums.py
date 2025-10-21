@@ -1,11 +1,9 @@
 from django.db import models
 
-class Role(models.TextChoices):
-    CUSTOMER = 'customer', 'Customer'
-    OWNER = 'owner', 'Owner'
-    MANAGER = 'manager', 'Manager'
-    ADMIN = 'admin', 'Admin'
-    SUPERADMIN = 'superadmin', 'Superadmin'
+class AmenityStatus(models.TextChoices):
+    YES = 'yes', 'Yes'
+    NO = 'no', 'No'
+    UNKNOWN = 'unknown', 'Unknown'
 
 class BookingStatus(models.TextChoices):
     WAITING = 'waiting','Waiting'
@@ -26,3 +24,10 @@ class PaymentMethod(models.TextChoices):
     APPLE_PAY = 'apple_pay', 'Apple_pay'
     GOOGLE_PAY ='google_pay', 'Google_pay'
     BANK_TRANSFER = 'bank_transfer', 'Bank_transfer'
+
+class PaymentStatus(models.TextChoices):
+    PENDING= 'pending', 'Pending'
+    COMPLETED = 'completed', 'Completed'
+    FAILED = 'failed', 'Failed'
+    REFUNDED = 'refunded', 'Refunded'
+    CANCELLED = 'cancelled', 'Cancelled'

@@ -1,61 +1,93 @@
 from django.core.management.base import BaseCommand
 from django.contrib.auth.models import Group, Permission
-from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
 
+
 class Command(BaseCommand):
-    help = 'Create default groups and assign model permissions'
+    help = 'Створює групи користувачів (Customers, Owners, Admins) з правами'
 
-    def handle(self, *args, **options):
+    def handle(self, *args, **kwargs):
+        self.stdout.write(self.style.WARNING('Початок створення груп...'))
 
-        groups_config = {
-            'Owners': {
-                'listings.Listing': ['add', 'change', 'delete', 'view'],
-                'listings.ListingPhoto': ['add', 'change', 'delete', 'view'],
-                'bookings.Booking': ['view'],
-            },
-            'Customers': {
-                'bookings.Booking': ['add', 'change', 'view', 'delete'],
-                'listings.Listing': ['view'],
-                'reviews.Review': ['add', 'change', 'view'],
-            },
-            'Managers': {
+        # Видалити старі групи
+        Group.objects.filter(name__in=['Customers', 'Owners', 'Admins']).delete()
+        self.stdout.write('🗑️  Старі групи видалено')
 
-                'listings.Listing': ['change', 'view'],
-                'bookings.Booking': ['change', 'view'],
-                'reviews.Review': ['change', 'view'],
-            },
-            'Admins': {
+        try:
+            from apps.listings.models import Listing
+            from apps.bookings.models import Booking
+            from apps.payments.models import Payment
+            from apps.reviews.models import Review
 
-                'listings.Listing': ['add', 'change', 'delete', 'view'],
-                'bookings.Booking': ['add', 'change', 'delete', 'view'],
-                'reviews.Review': ['add', 'change', 'delete', 'view'],
-                'users.User': ['add', 'change', 'delete', 'view'],
-            },
-        }
+            listing_ct = ContentType.objects.get_for_model(Listing)
+            booking_ct = ContentType.objects.get_for_model(Booking)
+            payment_ct = ContentType.objects.get_for_model(Payment)
+            review_ct = ContentType.objects.get_for_model(Review)
 
-        for group_name, models_perms in groups_config.items():
-            group, created = Group.objects.get_or_create(name=group_name)
-            if created:
-                self.stdout.write(self.style.SUCCESS(f'Group created: {group_name}'))
-            else:
-                self.stdout.write(self.style.WARNING(f'Group exists: {group_name}'))
+            self.stdout.write(self.style.SUCCESS('✅ ContentTypes отримані'))
 
-            for model_label, actions in models_perms.items():
-                app_label, model_name = model_label.split('.')
-                try:
-                    model = apps.get_model(app_label, model_name)
-                except LookupError:
-                    self.stdout.write(self.style.ERROR(f'Model not found: {model_label}'))
-                    continue
-                ct = ContentType.objects.get_for_model(model)
-                for action in actions:
-                    codename = f'{action}_{model._meta.model_name}'
-                    try:
-                        perm = Permission.objects.get(content_type=ct, codename=codename)
-                        group.permissions.add(perm)
-                        self.stdout.write(self.style.SUCCESS(f'Added perm {codename} to group {group_name}'))
-                    except Permission.DoesNotExist:
-                        self.stdout.write(self.style.ERROR(f'Permission not found: {codename}'))
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f'❌ Помилка: {e}'))
+            return
 
-        self.stdout.write(self.style.SUCCESS('Groups and permissions setup finished.'))
+        # ============================================
+        # CUSTOMERS
+        # ============================================
+        customers = Group.objects.create(name='Customers')
+        customer_permissions = []
+
+        try:
+            customer_permissions.extend([
+                Permission.objects.get(codename='view_listing', content_type=listing_ct),
+                Permission.objects.get(codename='add_booking', content_type=booking_ct),
+                Permission.objects.get(codename='view_booking', content_type=booking_ct),
+                Permission.objects.get(codename='change_booking', content_type=booking_ct),
+                Permission.objects.get(codename='add_payment', content_type=payment_ct),
+                Permission.objects.get(codename='view_payment', content_type=payment_ct),
+                Permission.objects.get(codename='add_review', content_type=review_ct),
+                Permission.objects.get(codename='view_review', content_type=review_ct),
+            ])
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f'⚠️  Деякі permissions не знайдено: {e}'))
+
+        customers.permissions.set(customer_permissions)
+        self.stdout.write(self.style.SUCCESS(f'✅ Customers: {len(customer_permissions)} прав'))
+
+        # ============================================
+        # OWNERS
+        # ============================================
+        owners = Group.objects.create(name='Owners')
+        owner_permissions = customer_permissions.copy()
+
+        try:
+            owner_permissions.extend([
+                Permission.objects.get(codename='add_listing', content_type=listing_ct),
+                Permission.objects.get(codename='change_listing', content_type=listing_ct),
+                Permission.objects.get(codename='delete_listing', content_type=listing_ct),
+            ])
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f'⚠️  Деякі permissions не знайдено: {e}'))
+
+        owners.permissions.set(owner_permissions)
+        self.stdout.write(self.style.SUCCESS(f'✅ Owners: {len(owner_permissions)} прав'))
+
+        # ============================================
+        # ADMINS
+        # ============================================
+        admins = Group.objects.create(name='Admins')
+        admin_permissions = Permission.objects.filter(
+            content_type__in=[listing_ct, booking_ct, payment_ct, review_ct]
+        )
+        admins.permissions.set(admin_permissions)
+        self.stdout.write(self.style.SUCCESS(f'✅ Admins: {admin_permissions.count()} прав'))
+
+        # ============================================
+        # ПІДСУМОК
+        # ============================================
+        self.stdout.write(self.style.SUCCESS('\n' + '=' * 50))
+        self.stdout.write(self.style.SUCCESS('🎉 ВСІ ГРУПИ СТВОРЕНІ!'))
+        self.stdout.write(self.style.SUCCESS('=' * 50))
+        self.stdout.write(f'Customers: {customers.permissions.count()} прав')
+        self.stdout.write(f'Owners: {owners.permissions.count()} прав')
+        self.stdout.write(f'Admins: {admins.permissions.count()} прав')
+        self.stdout.write(self.style.SUCCESS('=' * 50))

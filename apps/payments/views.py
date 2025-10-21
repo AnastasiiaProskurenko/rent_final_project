@@ -5,7 +5,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from .models import Payment, Refund
 from .serializers import PaymentSerializer, RefundSerializer
-from apps.common.enums import Role
+
 
 
 class PaymentViewSet(viewsets.ModelViewSet):
@@ -21,10 +21,10 @@ class PaymentViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
 
-        if user.role in [Role.ADMIN, Role.SUPERADMIN]:
+        if user.is_admin():
 
             return Payment.objects.select_related('user', 'booking')
-        elif user.role == Role.OWNER:
+        elif user.is_owner():
 
             return Payment.objects.filter(
                 booking__listing__owner=user
@@ -38,7 +38,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def process_payment(self, request, pk=None):
-        """Process a payment (simulate payment processing)"""
+
         payment = self.get_object()
         if payment.status != 'pending':
             return Response(
@@ -55,7 +55,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def my_payments(self, request):
-        """Get current user's payments"""
+
         payments = self.get_queryset().filter(user=request.user)
         serializer = self.get_serializer(payments, many=True)
         return Response(serializer.data)
@@ -74,24 +74,24 @@ class RefundViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
 
-        if user.role in [Role.ADMIN, Role.SUPERADMIN]:
-            # Адмін бачить все
+        if user.is_admin():
+
             return Refund.objects.select_related('payment', 'processed_by')
-        elif user.role == Role.OWNER:
-            # Власник бачить refunds за своїми оголошеннями
+        elif user.is_owner():
+
             return Refund.objects.filter(
                 payment__booking__listing__owner=user
             ).select_related('payment', 'processed_by')
         else:
-            # Customer бачить тільки свої refunds
+
             return Refund.objects.filter(
                 payment__user=user
             ).select_related('payment', 'processed_by')
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
-        """Approve a refund (for admins)"""
-        if request.user.role not in [Role.ADMIN, Role.SUPERADMIN]:
+
+        if not request.user.is_admin():
             return Response(
                 {'error': 'Only admins can approve refunds.'},
                 status=status.HTTP_403_FORBIDDEN
@@ -112,8 +112,8 @@ class RefundViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
-        """Reject a refund (for admins)"""
-        if request.user.role not in [Role.ADMIN, Role.SUPERADMIN]:
+
+        if not request.user.is_admin():
             return Response(
                 {'error': 'Only admins can reject refunds.'},
                 status=status.HTTP_403_FORBIDDEN

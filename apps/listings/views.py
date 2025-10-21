@@ -2,7 +2,7 @@ from rest_framework import viewsets, permissions
 from .models import Listing, ListingPhoto
 from .serializers import ListingSerializer, ListingPhotoSerializer
 from .permissions import IsOwnerOrReadOnly
-from apps.common.enums import Role
+
 
 
 class ListingViewSet(viewsets.ModelViewSet):

@@ -6,7 +6,7 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from .models import Booking
 from .serializers import BookingSerializer, BookingCreateSerializer
 from .filters import BookingFilter
-from apps.common.enums import Role
+
 
 
 class BookingViewSet(viewsets.ModelViewSet):
@@ -26,9 +26,9 @@ class BookingViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.role in [Role.ADMIN, Role.SUPERADMIN]:
+        if user.is_admin():
             return Booking.objects.select_related('customer', 'listing', 'created_by')
-        elif user.role == Role.OWNER:
+        elif user.is_owner():
             return Booking.objects.filter(listing__owner=user)
         else:
             return Booking.objects.filter(customer=user)
@@ -74,12 +74,17 @@ class BookingViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def my_listing_bookings(self, request):
 
-        if request.user.role not in [Role.OWNER, Role.ADMIN, Role.SUPERADMIN]:
+        if not (request.user.is_owner() or request.user.is_admin()):
             return Response(
-                {'error': 'Only owners can view listing bookings.'},
+                {'error': 'Only owners and admins can view listing bookings.'},
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        bookings = self.get_queryset().filter(listing__owner=request.user)
+
+        if request.user.is_admin():
+            bookings = self.get_queryset()
+        else:
+            bookings = self.get_queryset().filter(listing__owner=request.user)
+
         serializer = self.get_serializer(bookings, many=True)
         return Response(serializer.data)

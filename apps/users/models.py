@@ -4,13 +4,13 @@ from django.db.models import Avg
 
 from apps.common.models import TimeModel
 from apps.common.file_path import avatar_upload_to
-from apps.common.enums import Role
+
 from apps.common.validators import phone_validator
 
 class User(AbstractUser, TimeModel):
 
     email = models.EmailField(unique=True)
-    role = models.CharField(max_length=30, choices=Role.choices, default=Role.CUSTOMER)
+
     is_verified = models.BooleanField(default=False)
 
     USERNAME_FIELD = 'email'
@@ -19,8 +19,21 @@ class User(AbstractUser, TimeModel):
     def get_full_name(self):
         return f'{self.first_name} {self.last_name}'.strip() or self.username
 
+    def is_customer(self):
+
+        return self.groups.filter(name='Customers').exists()
+
+    def is_owner(self):
+
+        return self.groups.filter(name='Owners').exists()
+
+    def is_admin(self):
+
+        return self.groups.filter(name='Admins').exists() or self.is_superuser
+
     def __str__(self):
-        return f'{self.get_full_name()} - {self.role}'
+        groups = ', '.join([g.name for g in self.groups.all()])
+        return f'{self.get_full_name()} - {groups or "No group"}'
 
 class UserProfile(TimeModel):
 
