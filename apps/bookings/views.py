@@ -14,7 +14,11 @@ from .serializers import (
     BookingUpdateSerializer,
     BookingStatusUpdateSerializer
 )
-from .permissions import IsCustomerOrListingOwnerOrAdmin, IsListingOwnerOrAdmin
+from .permissions import (
+    IsCustomerOrListingOwnerOrAdmin,
+    IsListingOwnerOrAdmin,
+    IsCustomerRole,
+)
 from apps.common.enums import BookingStatus
 
 
@@ -113,6 +117,9 @@ class BookingViewSet(viewsets.ModelViewSet):
         """
         Права доступу залежно від action
         """
+        if self.action == 'create':
+            return [permissions.IsAuthenticated(), IsCustomerRole()]
+
         if self.action in ['update', 'partial_update', 'destroy']:
             return [
                 permissions.IsAuthenticated(),

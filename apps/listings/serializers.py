@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 
 from .models import Listing, Amenity, ListingPhoto
+from apps.reviews.models import OwnerRating
 from apps.common.constants import (
     # Listing info
     LISTING_TITLE_MIN_LENGTH,
@@ -58,8 +59,9 @@ class ListingSerializer(serializers.ModelSerializer):
     # Read-only поля
     owner_name = serializers.SerializerMethodField(read_only=True)
     owner_email = serializers.EmailField(source='owner.email', read_only=True)
-    average_rating = serializers.FloatField( read_only=True)
-    review_count = serializers.IntegerField( read_only=True)
+    average_rating = serializers.FloatField(read_only=True)
+    review_count = serializers.IntegerField(read_only=True)
+    owner_rating = serializers.SerializerMethodField(read_only=True)
 
     # Зручності та фото
     amenities = AmenitySerializer(many=True, read_only=True)
@@ -129,6 +131,7 @@ class ListingSerializer(serializers.ModelSerializer):
             # Рейтинг
             'average_rating',
             'review_count',
+            'owner_rating',
 
             # Статус
             'is_active',
@@ -143,6 +146,7 @@ class ListingSerializer(serializers.ModelSerializer):
             'owner',
             'average_rating',
             'review_count',
+            'owner_rating',
             'is_verified',
             'created_at',
             'updated_at',
@@ -151,6 +155,21 @@ class ListingSerializer(serializers.ModelSerializer):
     def get_owner_name(self, obj):
         """Отримати ім'я власника"""
         return obj.owner.get_full_name() or obj.owner.email
+
+    def get_owner_rating(self, obj):
+        """Отримати агрегований рейтинг власника"""
+        try:
+            stats = OwnerRating.objects.get(owner=obj.owner)
+        except OwnerRating.DoesNotExist:
+            return {
+                'average_rating': 0.0,
+                'total_reviews': 0,
+            }
+
+        return {
+            'average_rating': float(stats.average_rating),
+            'total_reviews': stats.total_reviews,
+        }
 
     def get_hotel_rooms_count(self, obj):
         """
@@ -490,6 +509,7 @@ class ListingDetailSerializer(ListingSerializer):
             'email': obj.owner.email,
             'joined': obj.owner.date_joined,
             'verified': getattr(obj.owner, 'is_verified', False),
+            'rating': self.get_owner_rating(obj),
         }
 
     def get_price_breakdown(self, obj):
@@ -497,6 +517,61 @@ class ListingDetailSerializer(ListingSerializer):
         ✅ Розрахунок ціни за різну кількість ночей
         """
         # Приклади для 1, 3, 7 ночей
+        return {
+            '1_night': obj.get_price_for_nights(1),
+            '3_nights': obj.get_price_for_nights(3),
+            '7_nights': obj.get_price_for_nights(7),
+        }
+
+
+class PublicListingSerializer(ListingSerializer):
+    """Спрощений серіалізатор для неавторизованих користувачів"""
+
+    class Meta(ListingSerializer.Meta):
+        fields = [
+            'id',
+            'title',
+            'description',
+            'property_type',
+            'country',
+            'city',
+            'address',
+            'latitude',
+            'longitude',
+            'is_hotel_apartment',
+            'hotel_rooms_count',
+            'num_rooms',
+            'num_bedrooms',
+            'num_bathrooms',
+            'max_guests',
+            'area',
+            'price',
+            'cleaning_fee',
+            'cancellation_policy',
+            'amenities',
+            'amenity_ids',
+            'photos',
+            'average_rating',
+            'review_count',
+            'is_active',
+            'is_verified',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = tuple(fields)
+
+
+class PublicListingDetailSerializer(PublicListingSerializer):
+    """Детальна інформація без даних про власника для гостей"""
+
+    class Meta(PublicListingSerializer.Meta):
+        fields = PublicListingSerializer.Meta.fields + [
+            'price_breakdown',
+        ]
+
+    price_breakdown = serializers.SerializerMethodField(read_only=True)
+
+    def get_price_breakdown(self, obj):
         return {
             '1_night': obj.get_price_for_nights(1),
             '3_nights': obj.get_price_for_nights(3),
