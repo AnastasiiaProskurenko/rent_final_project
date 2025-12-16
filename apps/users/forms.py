@@ -1,6 +1,6 @@
 from django import forms
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
-from .models import User
+from .models import User, UserProfile
 from apps.common.enums import UserRole
 
 # Форма реєстрації
@@ -20,6 +20,12 @@ class RegisterForm(UserCreationForm):
     )
 
     phone = forms.CharField(required=False)
+    biography = forms.CharField(
+        widget=forms.Textarea(attrs={'rows': 4}),
+        required=False
+    )
+    languages = forms.CharField(required=False)
+    avatar = forms.ImageField(required=False)
 
     class Meta:
         model = User
@@ -49,7 +55,10 @@ class RegisterForm(UserCreationForm):
             user.save()
             UserProfile.objects.create(
                 user=user,
-                phone=self.cleaned_data.get('phone')
+                phone=self.cleaned_data.get('phone'),
+                biography=self.cleaned_data.get('biography', ''),
+                languages=self.cleaned_data.get('languages') or UserProfile._meta.get_field('languages').get_default(),
+                avatar=self.cleaned_data.get('avatar')
             )
         return user
 

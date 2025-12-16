@@ -232,7 +232,7 @@
 
     <h2>Реєстрація</h2>
 
-    <form method="post">
+    <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
 
         {% if form.errors %}
@@ -278,6 +278,21 @@
         <div class="form-group">
             <label>Телефон (необовʼязково)</label>
             {{ form.phone }}
+        </div>
+
+        <div class="form-group">
+            <label>Біографія (необовʼязково)</label>
+            {{ form.biography }}
+        </div>
+
+        <div class="form-group">
+            <label>Мови (через кому)</label>
+            {{ form.languages }}
+        </div>
+
+        <div class="form-group">
+            <label>Аватар</label>
+            {{ form.avatar }}
         </div>
 
         <div class="form-group">
