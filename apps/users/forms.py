@@ -15,7 +15,7 @@ class RegisterForm(UserCreationForm):
     last_name = forms.CharField(required=True)
 
     role = forms.ChoiceField(
-        choices=UserRole.choices,
+        choices=[choice for choice in UserRole.choices if choice[0] != UserRole.ADMIN],
         widget=forms.RadioSelect
     )
 
