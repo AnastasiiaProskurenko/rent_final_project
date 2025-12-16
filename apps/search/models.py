@@ -1,19 +1,59 @@
 from django.db import models
+from django.conf import settings
 from apps.common.models import TimeModel
-from django.contrib.auth import get_user_model
 
-User = get_user_model()
-
-class SearchQuery(TimeModel):
-
-    query = models.CharField(max_length=255, db_index=True)
-    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='search_queries')
-    count = models.PositiveIntegerField(default=1)
-
-    class Meta:
-        unique_together = ('query', 'user')
 
 class SearchHistory(TimeModel):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='search_history', null=True, blank=True)
-    query = models.CharField(max_length=255)
-    ip = models.CharField(max_length=50, blank=True, null=True)
+    """
+    Історія пошукових запитів користувачів
+
+    Зберігає:
+    - Пошуковий запит
+    - Застосовані фільтри
+    - Кількість результатів
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='search_history',
+        null=True,
+        blank=True,
+        verbose_name='Користувач'
+    )
+
+    query = models.CharField(
+        max_length=255,
+        verbose_name='Пошуковий запит',
+        help_text='Ключові слова для пошуку'
+    )
+
+    filters = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name='Фільтри',
+        help_text='Застосовані фільтри (ціна, локація, тип і т.д.)'
+    )
+
+    results_count = models.IntegerField(
+        default=0,
+        verbose_name='Кількість результатів',
+        help_text='Скільки оголошень знайдено'
+    )
+
+    class Meta:
+        verbose_name = 'Історія пошуку'
+        verbose_name_plural = 'Історія пошуків'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['query']),
+        ]
+
+    def __str__(self):
+        user_str = self.user.email if self.user else 'Анонім'
+        return f"{user_str} - {self.query} ({self.results_count} результатів)"
+
+
+# Alias для сумісності з serializers
+SearchQuery = SearchHistory

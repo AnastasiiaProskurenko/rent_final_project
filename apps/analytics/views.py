@@ -1,124 +1,110 @@
-from rest_framework import viewsets, permissions, status
+from rest_framework import viewsets
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework.filters import OrderingFilter
-from django.db.models import Count, Avg
+from django.db.models import Count, Q
+
 from .models import ListingView
 from .serializers import ListingViewSerializer
+from apps.listings.serializers import ListingListSerializer
 
 
-class ListingViewViewSet(viewsets.ModelViewSet):
-    queryset = ListingView.objects.all()
+class ListingViewViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet для статистики переглядів
+
+    Endpoints:
+    - GET /listing-views/ - Список переглядів
+    - GET /listing-views/{id}/ - Деталі перегляду
+    - GET /listing-views/popular_listings/ - Популярні оголошення
+    - GET /listing-views/my_views/ - Мої перегляди
+    """
+
     serializer_class = ListingViewSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
-    filter_backends = [DjangoFilterBackend, OrderingFilter]
-    filterset_fields = ['listing', 'user']
-    ordering_fields = ['created_at']
-    ordering = ['-created_at']
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return ListingView.objects.select_related('listing', 'user')
+        """
+        Адміни бачать все, користувачі - тільки свої
+        """
+        user = self.request.user
 
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user if self.request.user.is_authenticated else None)
+        if user.is_staff or user.is_superuser:
+            return ListingView.objects.all()
 
-    @action(detail=False, methods=['get'])
-    def listing_stats(self, request):
-
-        listing_id = request.query_params.get('listing_id')
-        if not listing_id:
-            return Response(
-                {'error': 'listing_id parameter is required.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-
-        views = ListingView.objects.filter(listing_id=listing_id)
-        total_views = views.count()
-        unique_views = views.values('ip').distinct().count()
-
-
-        from django.utils import timezone
-        from datetime import timedelta
-
-        thirty_days_ago = timezone.now() - timedelta(days=30)
-        recent_views = views.filter(created_at__gte=thirty_days_ago).count()
-
-        return Response({
-            'listing_id': listing_id,
-            'total_views': total_views,
-            'unique_views': unique_views,
-            'recent_views_30d': recent_views
-        })
+        return ListingView.objects.filter(
+            Q(user=user) | Q(listing__owner=user)
+        )
 
     @action(detail=False, methods=['get'])
     def popular_listings(self, request):
+        """
+        Топ-10 найпопулярніших оголошень
+        """
+        from apps.listings.models import Listing
 
+        # Рахуємо перегляди для кожного listing
         popular = ListingView.objects.values('listing').annotate(
-            view_count=Count('id')
-        ).order_by('-view_count')[:10]
+            views_count=Count('id')
+        ).order_by('-views_count')[:10]
 
-
-        from apps.listings.serializers import ListingSerializer
-        from apps.listings.models import Listing
-
+        # Отримуємо самі listing
         listing_ids = [item['listing'] for item in popular]
         listings = Listing.objects.filter(id__in=listing_ids)
 
+        # Додаємо кількість переглядів
+        views_dict = {item['listing']: item['views_count'] for item in popular}
 
-        result = []
-        for listing in listings:
-            view_count = next(
-                (item['view_count'] for item in popular if item['listing'] == listing.id), 0
-            )
-            listing_data = ListingSerializer(listing).data
-            listing_data['view_count'] = view_count
-            result.append(listing_data)
+        serializer = ListingListSerializer(listings, many=True, context={'request': request})
+        data = serializer.data
 
-        return Response(result)
+        # Додаємо views_count до кожного
+        for item in data:
+            item['views_count'] = views_dict.get(item['id'], 0)
 
+        # Сортуємо по views_count
+        data = sorted(data, key=lambda x: x['views_count'], reverse=True)
 
-    @action(detail=False, methods=['get'])
-    def most_booked_listings(self, request):
-
-        from apps.bookings.models import Booking
-        from apps.listings.models import Listing
-        from apps.listings.serializers import ListingSerializer
-
-
-        popular = Booking.objects.filter(
-            status__in=['agreed', 'ended']
-        ).values('listing').annotate(
-            booking_count=Count('id')
-        ).order_by('-booking_count')[:10]
-
-        listing_ids = [item['listing'] for item in popular]
-        listings = Listing.objects.filter(id__in=listing_ids)
-
-        result = []
-        for listing in listings:
-            booking_count = next(
-                (item['booking_count'] for item in popular if item['listing'] == listing.id), 0
-            )
-            listing_data = ListingSerializer(listing).data
-            listing_data['booking_count'] = booking_count
-            result.append(listing_data)
-
-
-        result = sorted(result, key=lambda x: x['booking_count'], reverse=True)
-
-        return Response(result)
+        return Response(data)
 
     @action(detail=False, methods=['get'])
-    def user_activity(self, request):
-
-        if not request.user.is_authenticated:
-            return Response(
-                {'error': 'Authentication required.'},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-
-        views = self.get_queryset().filter(user=request.user)
+    def my_views(self, request):
+        """
+        Мої перегляди (історія)
+        """
+        views = ListingView.objects.filter(user=request.user).order_by('-viewed_at')[:20]
         serializer = self.get_serializer(views, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def my_listings_stats(self, request):
+        """
+        Статистика переглядів моїх оголошень
+        """
+        from apps.listings.models import Listing
+
+        # Мої оголошення
+        my_listings = Listing.objects.filter(owner=request.user)
+
+        # Рахуємо перегляди
+        stats = []
+        for listing in my_listings:
+            views_count = ListingView.objects.filter(listing=listing).count()
+            unique_users = ListingView.objects.filter(
+                listing=listing
+            ).values('user').distinct().count()
+
+            stats.append({
+                'listing_id': listing.id,
+                'listing_title': listing.title,
+                'total_views': views_count,
+                'unique_viewers': unique_users
+            })
+
+        # Сортуємо по кількості переглядів
+        stats = sorted(stats, key=lambda x: x['total_views'], reverse=True)
+
+        return Response({
+            'total_listings': my_listings.count(),
+            'listings_stats': stats
+        })

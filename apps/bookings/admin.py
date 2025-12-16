@@ -4,24 +4,52 @@ from .models import Booking
 
 @admin.register(Booking)
 class BookingAdmin(admin.ModelAdmin):
-    list_display = ('id', 'customer', 'listing', 'check_in', 'check_out', 'num_guests', 'total_price', 'status', 'created_at')
-    list_filter = ('status', 'check_in', 'check_out', 'created_at')
-    search_fields = ('customer__username', 'listing__title', 'notes')
-    readonly_fields = ('total_price', 'created_at', 'updated_at')
-    date_hierarchy = 'check_in'
-    
+    list_display = [
+        'id',
+        'listing',
+        'customer',
+        'check_in',
+        'check_out',
+        'status',
+        'total_price',
+        'created_at'
+    ]
+
+    list_filter = [
+        'status',
+        'check_in',
+        'check_out',
+        'created_at'
+    ]
+
+    search_fields = [
+        'listing__title',
+        'customer__email',
+        'customer__first_name',
+        'customer__last_name'
+    ]
+
+    readonly_fields = [
+        'customer',
+        'total_price',
+        'created_at',
+        'updated_at'
+    ]
+
+    list_select_related = ['customer', 'listing']  # ✅ Правильно
+
     fieldsets = (
-        ('Booking Details', {
-            'fields': ('customer', 'listing', 'status', 'created_by')
+        ('Бронювання', {
+            'fields': ('listing', 'customer', 'status')
         }),
-        ('Dates & Times', {
-            'fields': ('check_in', 'check_out', 'check_in_time', 'check_out_time')
+        ('Дати', {
+            'fields': ('check_in', 'check_out')
         }),
-        ('Guests & Pricing', {
+        ('Деталі', {
             'fields': ('num_guests', 'total_price')
         }),
-        ('Additional Info', {
-            'fields': ('notes',),
+        ('Скасування', {
+            'fields': ('cancellation_reason',),
             'classes': ('collapse',)
         }),
         ('Timestamps', {
@@ -29,6 +57,7 @@ class BookingAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         })
     )
-    
+
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related('customer', 'listing', 'created_by')
+        qs = super().get_queryset(request)
+        return qs.select_related('customer', 'listing')

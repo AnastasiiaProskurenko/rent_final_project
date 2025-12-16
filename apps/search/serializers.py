@@ -1,32 +1,24 @@
 from rest_framework import serializers
-from .models import SearchQuery, SearchHistory
-from apps.users.serializers import UserSerializer
+from .models import SearchHistory
 
-
-class SearchQuerySerializer(serializers.ModelSerializer):
-    user = UserSerializer(read_only=True)
-    
-    class Meta:
-        model = SearchQuery
-        fields = '__all__'
-        read_only_fields = ('count', 'created_at', 'updated_at')
+# Якщо там використовується SearchQuery - додайте:
+SearchQuery = SearchHistory  # Alias
 
 
 class SearchHistorySerializer(serializers.ModelSerializer):
-    user = UserSerializer(read_only=True)
-    
     class Meta:
         model = SearchHistory
         fields = '__all__'
-        read_only_fields = ('created_at', 'updated_at')
+
+
+class SearchQuerySerializer(serializers.Serializer):
+    query = serializers.CharField(required=False, allow_blank=True)
 
 
 class SearchSerializer(serializers.Serializer):
-    query = serializers.CharField(max_length=255)
-    filters = serializers.JSONField(required=False, default=dict)
-    
-    def validate_query(self, value):
-        if not value.strip():
-            raise serializers.ValidationError("Search query cannot be empty.")
-        return value.strip()
-
+    query = serializers.CharField(required=False, allow_blank=True)
+    min_price = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+    max_price = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+    city = serializers.CharField(required=False, allow_blank=True)
+    rooms = serializers.IntegerField(required=False)
+    property_type = serializers.CharField(required=False, allow_blank=True)

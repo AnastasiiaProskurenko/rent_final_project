@@ -7,18 +7,32 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
+    # ============================================
+    # HTML сторінки (✅ ДОДАТИ)
+    # ============================================
+    path('', include('apps.users.urls')),  # ✅ ДОДАТИ - HTML на /
+
+    # ============================================
+    # Admin
+    # ============================================
     path('admin/', admin.site.urls),
 
-
+    # ============================================
+    # JWT Auth
+    # ============================================
     path('api/auth/token/', EmailTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
-
+    # ============================================
+    # API Documentation
+    # ============================================
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/schema/swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
 
-
-    path('api/', include('apps.users.urls')),
+    # ============================================
+    # API endpoints
+    # ============================================
+    path('api/', include('apps.users.api_urls')),  # ✅ ЗМІНИТИ - API на /api/
     path('api/', include('apps.listings.urls')),
     path('api/', include('apps.bookings.urls')),
     path('api/', include('apps.reviews.urls')),

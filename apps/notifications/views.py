@@ -11,7 +11,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
     serializer_class = NotificationSerializer
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['type', 'is_read']
+    filterset_fields = ['notification_type', 'is_read']
     search_fields = ['title', 'message']
     ordering_fields = ['created_at']
     ordering = ['-created_at']
@@ -50,7 +50,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def by_type(self, request):
 
-        notification_type = request.query_params.get('type')
+        notification_type = request.query_params.get('notification_type')
         if not notification_type:
             return Response(
                 {'error': 'type parameter is required.'},
