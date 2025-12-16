@@ -8,6 +8,8 @@ from .serializers import (
     ListingSerializer,
     ListingDetailSerializer,
     ListingPhotoSerializer,
+    PublicListingSerializer,
+    PublicListingDetailSerializer,
 )
 from .filters import ListingFilter
 from .permissions import IsOwnerOrReadOnly
@@ -35,8 +37,14 @@ class ListingViewSet(viewsets.ModelViewSet):
 
     def get_serializer_class(self):
         """Використовувати детальний серіалізатор для retrieve"""
+        is_authenticated = self.request and self.request.user.is_authenticated
+
         if self.action == 'retrieve':
-            return ListingDetailSerializer
+            return ListingDetailSerializer if is_authenticated else PublicListingDetailSerializer
+
+        if self.action == 'list':
+            return ListingSerializer if is_authenticated else PublicListingSerializer
+
         return ListingSerializer
 
     def perform_create(self, serializer):

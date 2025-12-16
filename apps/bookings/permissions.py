@@ -43,6 +43,13 @@ class IsListingOwnerOrAdmin(permissions.BasePermission):
         return obj.listing.owner == request.user
 
 
+class IsCustomerRole(permissions.BasePermission):
+    """Дозволяє виконувати дію лише користувачам з роллю customer"""
+
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.is_customer()
+
+
 class IsCustomerOnly(permissions.BasePermission):
     """
     Дозволяє доступ тільки клієнту бронювання
