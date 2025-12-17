@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 
 from .models import Listing, Amenity, ListingPhoto
 from apps.reviews.models import OwnerRating
+from apps.common.models import Location
 from apps.common.constants import (
     # Listing info
     LISTING_TITLE_MIN_LENGTH,
@@ -27,6 +28,12 @@ from apps.common.constants import (
 
     # Hotel apartments
     MAX_HOTEL_ROOMS_PER_ADDRESS,
+
+    # Coordinates
+    LATITUDE_MAX_DIGITS,
+    LATITUDE_DECIMAL_PLACES,
+    LONGITUDE_MAX_DIGITS,
+    LONGITUDE_DECIMAL_PLACES,
 )
 
 User = get_user_model()
@@ -50,7 +57,125 @@ class ListingPhotoSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'created_at')
 
 
-class ListingSerializer(serializers.ModelSerializer):
+class LocationSerializer(serializers.ModelSerializer):
+    """Серіалізатор для локації (адреса + координати)"""
+
+    class Meta:
+        model = Location
+        fields = ('id', 'country', 'city', 'address', 'latitude', 'longitude')
+        read_only_fields = ('id',)
+
+
+class LocationSerializerMixin(serializers.Serializer):
+    """
+    Міксин для роботи з локацією у серіалізаторах оголошень.
+    """
+
+    location = LocationSerializer(read_only=True)
+    location_id = serializers.PrimaryKeyRelatedField(
+        queryset=Location.objects.all(),
+        write_only=True,
+        required=False,
+        allow_null=True,
+        help_text='Існуюча локація'
+    )
+    country = serializers.CharField(write_only=True, required=False)
+    city = serializers.CharField(write_only=True, required=False)
+    address = serializers.CharField(write_only=True, required=False)
+    latitude = serializers.DecimalField(
+        max_digits=LATITUDE_MAX_DIGITS,
+        decimal_places=LATITUDE_DECIMAL_PLACES,
+        required=False,
+        allow_null=True
+    )
+    longitude = serializers.DecimalField(
+        max_digits=LONGITUDE_MAX_DIGITS,
+        decimal_places=LONGITUDE_DECIMAL_PLACES,
+        required=False,
+        allow_null=True
+    )
+
+    def _update_location_coordinates(self, location: Location, latitude, longitude):
+        updated = False
+        if latitude is not None and location.latitude != latitude:
+            location.latitude = latitude
+            updated = True
+        if longitude is not None and location.longitude != longitude:
+            location.longitude = longitude
+            updated = True
+        if updated:
+            location.save()
+
+    def _create_or_update_location(self, country, city, address, latitude, longitude) -> Location:
+        defaults = {}
+        if latitude is not None:
+            defaults['latitude'] = latitude
+        if longitude is not None:
+            defaults['longitude'] = longitude
+
+        location, created = Location.objects.get_or_create(
+            country=country,
+            city=city,
+            address=address,
+            defaults=defaults
+        )
+
+        # Оновлюємо координати, якщо вони змінилися
+        self._update_location_coordinates(location, latitude, longitude)
+        return location
+
+    def _extract_location(self, attrs: dict) -> Location:
+        """
+        Повертає або існуючу локацію, або створює нову на основі полів country/city/address.
+        """
+        location = attrs.pop('location_id', None)
+        country = attrs.pop('country', None)
+        city = attrs.pop('city', None)
+        address = attrs.pop('address', None)
+        latitude = attrs.pop('latitude', None)
+        longitude = attrs.pop('longitude', None)
+
+        if location:
+            self._update_location_coordinates(location, latitude, longitude)
+            return location
+
+        if not any([country, city, address]):
+            # Використовуємо існуючу локацію, якщо це оновлення
+            if getattr(self, 'instance', None) and getattr(self.instance, 'location', None):
+                return self.instance.location
+            raise serializers.ValidationError({
+                'location': 'Location is required.'
+            })
+
+        if not all([country, city, address]):
+            raise serializers.ValidationError({
+                'location': 'Country, city and address are required to set a location.'
+            })
+
+        return self._create_or_update_location(
+            country.strip(),
+            city.strip(),
+            address.strip(),
+            latitude,
+            longitude
+        )
+
+    def _inject_location_representation(self, instance, data: dict) -> dict:
+        """
+        Додає інформацію про локацію у вихідну відповідь.
+        """
+        if instance.location:
+            data['location'] = LocationSerializer(instance.location).data
+            data['location_id'] = instance.location.id
+            data['country'] = instance.location.country
+            data['city'] = instance.location.city
+            data['address'] = instance.location.address
+            data['latitude'] = instance.location.latitude
+            data['longitude'] = instance.location.longitude
+        return data
+
+
+class ListingSerializer(LocationSerializerMixin, serializers.ModelSerializer):
     """
     Повний серіалізатор для оголошень
     ✅ З валідацією унікальності адреси та використанням констант
@@ -99,6 +224,8 @@ class ListingSerializer(serializers.ModelSerializer):
             'property_type',
 
             # Адреса
+            'location',
+            'location_id',
             'country',
             'city',
             'address',
@@ -178,10 +305,8 @@ class ListingSerializer(serializers.ModelSerializer):
         if not obj.is_hotel_apartment:
             return 0
 
-        return Listing.count_hotel_rooms_at_address(
-            country=obj.country,
-            city=obj.city,
-            address=obj.address,
+        return Listing.count_hotel_rooms_at_location(
+            location=obj.location,
             owner=obj.owner
         )
 
@@ -265,29 +390,34 @@ class ListingSerializer(serializers.ModelSerializer):
         # Валідація адреси (викликає model.clean())
         # Це перевірить унікальність та готельні квартири
 
+        location = self._extract_location(attrs)
+        attrs['location'] = location
+
         request = self.context.get('request')
 
         # При створенні - встановлюємо власника
         if not self.instance and request:
             attrs['owner'] = request.user
 
+        is_hotel = attrs.get(
+            'is_hotel_apartment',
+            self.instance.is_hotel_apartment if self.instance else False
+        )
+
         # Валідація готельних квартир
-        if attrs.get('is_hotel_apartment'):
+        if is_hotel:
             # ✅ Перевірка максимальної кількості кімнат
+            target_location = location or (self.instance.location if self.instance else None)
             if self.instance:
                 # При оновленні
-                current_count = Listing.count_hotel_rooms_at_address(
-                    country=attrs.get('country', self.instance.country),
-                    city=attrs.get('city', self.instance.city),
-                    address=attrs.get('address', self.instance.address),
+                current_count = Listing.count_hotel_rooms_at_location(
+                    location=target_location,
                     owner=self.instance.owner
                 )
             else:
                 # При створенні
-                current_count = Listing.count_hotel_rooms_at_address(
-                    country=attrs['country'],
-                    city=attrs['city'],
-                    address=attrs['address'],
+                current_count = Listing.count_hotel_rooms_at_location(
+                    location=target_location,
                     owner=attrs['owner']
                 )
 
@@ -331,8 +461,12 @@ class ListingSerializer(serializers.ModelSerializer):
 
         return instance
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        return self._inject_location_representation(instance, data)
 
-class ListingCreateSerializer(serializers.ModelSerializer):
+
+class ListingCreateSerializer(LocationSerializerMixin, serializers.ModelSerializer):
     """
     Серіалізатор для створення оголошення
     ✅ З завантаженням фото та використанням констант
@@ -364,6 +498,8 @@ class ListingCreateSerializer(serializers.ModelSerializer):
             'property_type',
 
             # Адреса
+            'location',
+            'location_id',
             'country',
             'city',
             'address',
@@ -411,6 +547,29 @@ class ListingCreateSerializer(serializers.ModelSerializer):
 
         return value
 
+    def validate(self, attrs):
+        location = self._extract_location(attrs)
+        attrs['location'] = location
+
+        request = self.context.get('request')
+        if not self.instance and request:
+            attrs['owner'] = request.user
+
+        if attrs.get('is_hotel_apartment') and attrs.get('owner'):
+            current_count = Listing.count_hotel_rooms_at_location(
+                location=location,
+                owner=attrs['owner']
+            )
+            if current_count >= MAX_HOTEL_ROOMS_PER_ADDRESS:
+                raise serializers.ValidationError({
+                    'is_hotel_apartment': (
+                        f'Maximum number of hotel rooms ({MAX_HOTEL_ROOMS_PER_ADDRESS}) '
+                        f'reached for this address'
+                    )
+                })
+
+        return attrs
+
     def create(self, validated_data):
         """Створення оголошення з фото"""
         # Витягуємо фото та amenities
@@ -439,6 +598,10 @@ class ListingCreateSerializer(serializers.ModelSerializer):
 
         return listing
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        return self._inject_location_representation(instance, data)
+
 
 class ListingListSerializer(serializers.ModelSerializer):
     """
@@ -450,6 +613,8 @@ class ListingListSerializer(serializers.ModelSerializer):
     main_photo = serializers.SerializerMethodField()
     average_rating = serializers.FloatField( read_only=True)
     review_count = serializers.IntegerField( read_only=True)
+    city = serializers.SerializerMethodField()
+    country = serializers.SerializerMethodField()
 
     class Meta:
         model = Listing
@@ -472,6 +637,12 @@ class ListingListSerializer(serializers.ModelSerializer):
     def get_owner_name(self, obj):
         """Отримати ім'я власника"""
         return obj.owner.get_full_name() or obj.owner.email
+
+    def get_city(self, obj):
+        return obj.location.city if obj.location else None
+
+    def get_country(self, obj):
+        return obj.location.country if obj.location else None
 
     def get_main_photo(self, obj):
         """Отримати головне фото"""
@@ -533,6 +704,8 @@ class PublicListingSerializer(ListingSerializer):
             'title',
             'description',
             'property_type',
+            'location',
+            'location_id',
             'country',
             'city',
             'address',
@@ -600,35 +773,38 @@ def validate_listing_address(listing_data: dict, owner, instance=None) -> dict:
     """
     errors = {}
 
-    country = listing_data.get('country')
-    city = listing_data.get('city')
-    address = listing_data.get('address')
+    location = listing_data.get('location')
     is_hotel = listing_data.get('is_hotel_apartment', False)
 
-    if not all([country, city, address]):
-        return errors
-
-    # Нормалізуємо адресу
-    normalized = Listing.normalize_address(address)
+    if not location:
+        country = listing_data.get('country')
+        city = listing_data.get('city')
+        address = listing_data.get('address')
+        if not all([country, city, address]):
+            return errors
+        location = Location(
+            country=country,
+            city=city,
+            address=address,
+            latitude=listing_data.get('latitude'),
+            longitude=listing_data.get('longitude'),
+            normalized_address=Location.normalize_address(address)
+        )
 
     # Шукаємо існуючі оголошення
-    existing = Listing.objects.filter(
-        country__iexact=country,
-        city__iexact=city,
+    existing_on_address = Listing.objects.filter(
+        location__country__iexact=location.country,
+        location__city__iexact=location.city,
+        location__normalized_address=location.normalized_address,
     ).exclude(pk=instance.pk if instance else None)
 
-    existing_on_address = [
-        listing for listing in existing
-        if Listing.normalize_address(listing.address) == normalized
-    ]
-
-    if not existing_on_address:
+    if not existing_on_address.exists():
         return errors  # Адреса вільна
 
     # Валідація для звичайної нерухомості
     if not is_hotel:
         errors['address'] = (
-            f'Address "{address}" is already taken. '
+            f'Address "{location.address}" is already taken. '
             f'For hotel-type apartments, set is_hotel_apartment=True'
         )
         return errors
@@ -642,16 +818,16 @@ def validate_listing_address(listing_data: dict, owner, instance=None) -> dict:
 
         if different_owners:
             errors['address'] = (
-                f'Hotel apartments at "{address}" belong to different owner. '
+                f'Hotel apartments at "{location.address}" belong to different owner. '
                 f'All hotel rooms must belong to same owner.'
             )
             return errors
 
         # ✅ Перевірка максимальної кількості
-        if len(existing_on_address) >= MAX_HOTEL_ROOMS_PER_ADDRESS:
+        if existing_on_address.count() >= MAX_HOTEL_ROOMS_PER_ADDRESS:
             errors['address'] = (
                 f'Maximum number of hotel rooms ({MAX_HOTEL_ROOMS_PER_ADDRESS}) '
-                f'reached for address "{address}"'
+                f'reached for address "{location.address}"'
             )
             return errors
 

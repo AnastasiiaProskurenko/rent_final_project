@@ -1,12 +1,15 @@
 from rest_framework import serializers
 from .models import Booking
 from apps.listings.models import Listing, ListingPhoto
+from apps.listings.serializers import LocationSerializer as ListingLocationSerializer
 
 
 class ListingSerializer(serializers.ModelSerializer):
     """Мінімальна інформація про оголошення для бронювання"""
 
     main_photo = serializers.SerializerMethodField()
+    city = serializers.SerializerMethodField()
+    address = serializers.SerializerMethodField()
 
     class Meta:
         model = Listing
@@ -28,11 +31,18 @@ class ListingSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(photo.image.url)
         return None
 
+    def get_city(self, obj):
+        return obj.location.city if obj.location else None
+
+    def get_address(self, obj):
+        return obj.location.address if obj.location else None
+
 
 class BookingSerializer(serializers.ModelSerializer):
     """Serializer для перегляду бронювань"""
 
     listing = ListingSerializer(read_only=True)
+    location = ListingLocationSerializer(read_only=True)
     customer_name = serializers.CharField(source='customer.get_full_name', read_only=True)
     customer_email = serializers.CharField(source='customer.email', read_only=True)
 
@@ -41,6 +51,7 @@ class BookingSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'listing',
+            'location',
             'customer',
             'customer_name',
             'customer_email',
@@ -53,14 +64,15 @@ class BookingSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at'
         ]
-        read_only_fields = ['customer', 'total_price', 'created_at', 'updated_at']
+        read_only_fields = ['customer', 'location', 'total_price', 'created_at', 'updated_at']
 
 
 class BookingListSerializer(serializers.ModelSerializer):
     """Serializer для списку бронювань (коротка інформація)"""
 
     listing_title = serializers.CharField(source='listing.title', read_only=True)
-    listing_city = serializers.CharField(source='listing.city', read_only=True)
+    listing_city = serializers.SerializerMethodField()
+    location = ListingLocationSerializer(read_only=True)
     customer_name = serializers.CharField(source='customer.get_full_name', read_only=True)
 
     class Meta:
@@ -69,6 +81,7 @@ class BookingListSerializer(serializers.ModelSerializer):
             'id',
             'listing_title',
             'listing_city',
+            'location',
             'customer_name',
             'check_in',
             'check_out',
@@ -77,6 +90,9 @@ class BookingListSerializer(serializers.ModelSerializer):
             'status',
             'created_at'
         ]
+
+    def get_listing_city(self, obj):
+        return obj.location.city if obj.location else None
 
 
 class BookingCreateSerializer(serializers.ModelSerializer):
@@ -129,6 +145,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
                 "Ці дати вже заброньовані"
             )
 
+        data['location'] = listing.location
         return data
 
     def create(self, validated_data):
@@ -144,6 +161,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         # Створюємо бронювання
         booking = Booking.objects.create(
             customer=self.context['request'].user,
+            location=listing.location,
             total_price=total_price,
             **validated_data
         )

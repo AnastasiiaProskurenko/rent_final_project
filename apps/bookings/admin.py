@@ -12,6 +12,7 @@ class BookingAdmin(admin.ModelAdmin):
         'check_out',
         'status',
         'total_price',
+        'location',
         'created_at'
     ]
 
@@ -19,6 +20,7 @@ class BookingAdmin(admin.ModelAdmin):
         'status',
         'check_in',
         'check_out',
+        'location',
         'created_at'
     ]
 
@@ -26,17 +28,20 @@ class BookingAdmin(admin.ModelAdmin):
         'listing__title',
         'customer__email',
         'customer__first_name',
-        'customer__last_name'
+        'customer__last_name',
+        'location__city',
+        'location__address'
     ]
 
     readonly_fields = [
         'customer',
+        'location',
         'total_price',
         'created_at',
         'updated_at'
     ]
 
-    list_select_related = ['customer', 'listing']  # ✅ Правильно
+    list_select_related = ['customer', 'listing', 'location']  # ✅ Правильно
 
     fieldsets = (
         ('Бронювання', {
@@ -46,7 +51,7 @@ class BookingAdmin(admin.ModelAdmin):
             'fields': ('check_in', 'check_out')
         }),
         ('Деталі', {
-            'fields': ('num_guests', 'total_price')
+            'fields': ('num_guests', 'total_price', 'location')
         }),
         ('Скасування', {
             'fields': ('cancellation_reason',),

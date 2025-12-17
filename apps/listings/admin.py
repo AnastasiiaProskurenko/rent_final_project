@@ -15,7 +15,7 @@ class ListingAdmin(admin.ModelAdmin):
         'title',
         'owner',
         'price',
-        'city',
+        'get_city',
         'property_type',
         'is_active',
         'created_at'
@@ -31,11 +31,17 @@ class ListingAdmin(admin.ModelAdmin):
         'title',
         'description',
         'owner__email',
-        'city'
+        'location__city',
+        'location__address'
     ]
 
     readonly_fields = ['created_at', 'updated_at']
     inlines = [ListingPhotoInline]
+    list_select_related = ['location', 'owner']
+
+    @admin.display(description='City')
+    def get_city(self, obj):
+        return obj.location.city if obj.location else ''
 
 
 @admin.register(ListingPhoto)

@@ -27,11 +27,11 @@ class ListingViewSet(viewsets.ModelViewSet):
     destroy: Видалити оголошення
     """
 
-    queryset = Listing.objects.all()
+    queryset = Listing.objects.select_related('location', 'owner').all()
     permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ListingFilter
-    search_fields = ['title', 'description', 'city']
+    search_fields = ['title', 'description', 'location__city', 'location__address']
     ordering_fields = ['price', 'created_at', 'rating']
     ordering = ['-created_at']
 

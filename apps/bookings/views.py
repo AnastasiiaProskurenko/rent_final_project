@@ -38,6 +38,8 @@ class BookingViewSet(viewsets.ModelViewSet):
         'customer',
         'listing',
         'listing__owner',
+        'listing__location',
+        'location',
         'created_by'
     ).all()
 
@@ -48,6 +50,7 @@ class BookingViewSet(viewsets.ModelViewSet):
     filterset_fields = {
         'status': ['exact', 'in'],
         'listing': ['exact'],
+        'location': ['exact'],
         'customer': ['exact'],
         'check_in': ['gte', 'lte', 'exact'],
         'check_out': ['gte', 'lte', 'exact'],
@@ -61,7 +64,9 @@ class BookingViewSet(viewsets.ModelViewSet):
         'customer__first_name',
         'customer__last_name',
         'listing__title',
-        'listing__city',
+        'listing__location__city',
+        'location__city',
+        'location__address',
         'notes'
     ]
 
