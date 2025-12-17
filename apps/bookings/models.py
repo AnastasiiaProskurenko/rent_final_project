@@ -31,6 +31,7 @@ from apps.common.constants import (
     # Fees
     PLATFORM_FEE_PERCENTAGE,
 )
+from apps.listings.models import ListingPrice
 
 
 class Booking(TimeModel):
@@ -97,9 +98,10 @@ class Booking(TimeModel):
     # ЦІНА
     # ============================================
 
-    price_per_night = models.DecimalField(
-        max_digits=PRICE_MAX_DIGITS,  # ✅ Константа
-        decimal_places=PRICE_DECIMAL_PLACES,  # ✅ Константа
+    price_per_night = models.ForeignKey(
+        'listings.ListingPrice',
+        on_delete=models.PROTECT,
+        related_name='bookings',
         verbose_name='Price per Night',
         help_text='Ціна на момент бронювання'
     )
@@ -348,10 +350,14 @@ class Booking(TimeModel):
         self.num_nights = (self.check_out - self.check_in).days
 
         # Ціна за ніч (зберігаємо на момент бронювання з оголошення)
-        self.price_per_night = self.listing.price
+        price_entry, _ = ListingPrice.objects.get_or_create(
+            listing=self.listing,
+            amount=self.listing.price
+        )
+        self.price_per_night = price_entry
 
         # Базова ціна
-        self.base_price = self.price_per_night * self.num_nights
+        self.base_price = self.price_per_night.amount * self.num_nights
 
         # Прибиральний збір
         if not self.cleaning_fee:
@@ -476,8 +482,9 @@ class Booking(TimeModel):
 
     def save(self, *args, **kwargs):
         """Перевизначення save для автоматичних обчислень"""
-        # При створенні - розрахувати ціни
-        if not self.pk:
-            self.full_clean()
+        # Автоматичний розрахунок перед валідацією
+        self._calculate_prices()
 
+        # Валідація перед збереженням
+        self.full_clean()
         super().save(*args, **kwargs)
