@@ -3,20 +3,9 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
 
-from apps.common.models import TimeModel
+from apps.common.models import Location, TimeModel
 from apps.common.enums import PropertyType, CancellationPolicy
 from apps.common.constants import (
-    # Address
-    ADDRESS_MAX_LENGTH,
-    CITY_MAX_LENGTH,
-    COUNTRY_MAX_LENGTH,
-
-    # Coordinates
-    LATITUDE_MAX_DIGITS,
-    LATITUDE_DECIMAL_PLACES,
-    LONGITUDE_MAX_DIGITS,
-    LONGITUDE_DECIMAL_PLACES,
-
     # Listing info
     LISTING_TITLE_MAX_LENGTH,
     LISTING_DESCRIPTION_MAX_LENGTH,
@@ -90,20 +79,11 @@ class Listing(TimeModel):
     # АДРЕСА
     # ============================================
 
-    country = models.CharField(
-        max_length=COUNTRY_MAX_LENGTH,  # ✅ Константа
-        verbose_name='Country'
-    )
-
-    city = models.CharField(
-        max_length=CITY_MAX_LENGTH,  # ✅ Константа
-        verbose_name='City'
-    )
-
-    address = models.CharField(
-        max_length=ADDRESS_MAX_LENGTH,  # ✅ Константа
-        verbose_name='Street Address',
-        help_text='Вулиця, будинок, квартира'
+    location = models.ForeignKey(
+        Location,
+        on_delete=models.PROTECT,
+        related_name='listings',
+        verbose_name='Location'
     )
 
     # ✅ Позначка квартири готельного типу
@@ -115,26 +95,6 @@ class Listing(TimeModel):
             'Якщо True, дозволяється декілька оголошень на одну адресу. '
             f'Максимум {MAX_HOTEL_ROOMS_PER_ADDRESS} кімнат на адресу.'
         )
-    )
-
-    # ============================================
-    # КООРДИНАТИ
-    # ============================================
-
-    latitude = models.DecimalField(
-        max_digits=LATITUDE_MAX_DIGITS,  # ✅ Константа
-        decimal_places=LATITUDE_DECIMAL_PLACES,  # ✅ Константа
-        null=True,
-        blank=True,
-        verbose_name='Latitude'
-    )
-
-    longitude = models.DecimalField(
-        max_digits=LONGITUDE_MAX_DIGITS,  # ✅ Константа
-        decimal_places=LONGITUDE_DECIMAL_PLACES,  # ✅ Константа
-        null=True,
-        blank=True,
-        verbose_name='Longitude'
     )
 
     # ============================================
@@ -269,18 +229,18 @@ class Listing(TimeModel):
         verbose_name = 'Listing'
         verbose_name_plural = 'Listings'
         indexes = [
-            models.Index(fields=['city', 'country']),
+            models.Index(fields=['location']),
             models.Index(fields=['owner', '-created_at']),
             models.Index(fields=['is_active', 'is_verified']),
             models.Index(fields=['price']),
             models.Index(fields=['property_type']),
-            models.Index(fields=['country', 'city', 'address']),
             models.Index(fields=['is_hotel_apartment']),
         ]
 
     def __str__(self):
         hotel_mark = " [Hotel Apt]" if self.is_hotel_apartment else ""
-        return f'{self.title} - {self.city}{hotel_mark}'
+        city = self.location.city if self.location else ''
+        return f'{self.title} - {city}{hotel_mark}'
 
     def clean(self):
         """
@@ -289,9 +249,8 @@ class Listing(TimeModel):
         """
         super().clean()
 
-        # Нормалізуємо адресу
-        if self.address:
-            self.address = ' '.join(self.address.split()).strip()
+        if not self.location:
+            raise ValidationError({'location': 'Location must be set.'})
 
         # Валідація унікальності адреси
         self._validate_address_uniqueness()
@@ -310,23 +269,22 @@ class Listing(TimeModel):
            - Але всі від ОДНОГО власника
            - Максимум MAX_HOTEL_ROOMS_PER_ADDRESS кімнат
         """
-        if not all([self.country, self.city, self.address]):
+        if not self.location:
             return
 
         # Нормалізуємо адресу для порівняння
-        normalized_address = self.normalize_address(self.address)
+        normalized_address = self.location.normalized_address
 
         # Шукаємо існуючі оголошення на цій адресі
         existing = Listing.objects.filter(
-            country__iexact=self.country,
-            city__iexact=self.city,
+            location__country__iexact=self.location.country,
+            location__city__iexact=self.location.city,
         ).exclude(pk=self.pk if self.pk else None)
 
         # Фільтруємо по нормалізованій адресі
-        existing_on_address = [
-            listing for listing in existing
-            if self.normalize_address(listing.address) == normalized_address
-        ]
+        existing_on_address = existing.filter(
+            location__normalized_address=normalized_address
+        )
 
         if not existing_on_address:
             return  # Адреса вільна
@@ -338,7 +296,7 @@ class Listing(TimeModel):
             # Перевіряємо чи є будь-які інші оголошення на цій адресі
             raise ValidationError({
                 'address': (
-                    f'На адресі "{self.address}" вже існує оголошення. '
+                    f'На адресі "{self.location.address}" вже існує оголошення. '
                     f'Для звичайної нерухомості дозволяється тільки одне оголошення на адресу. '
                     f'Якщо це квартира готельного типу (здаються окремі кімнати), '
                     f'встановіть "Hotel-type Apartment" = True.'
@@ -358,7 +316,7 @@ class Listing(TimeModel):
             if non_hotel:
                 raise ValidationError({
                     'address': (
-                        f'На адресі "{self.address}" вже існує звичайне оголошення. '
+                        f'На адресі "{self.location.address}" вже існує звичайне оголошення. '
                         f'Неможливо додати готельну квартиру на цю адресу.'
                     )
                 })
@@ -373,21 +331,21 @@ class Listing(TimeModel):
                 other_owner = different_owners[0].owner
                 raise ValidationError({
                     'address': (
-                        f'На адресі "{self.address}" вже є готельні квартири '
+                        f'На адресі "{self.location.address}" вже є готельні квартири '
                         f'від іншого власника ({other_owner.get_full_name() or other_owner.email}). '
                         f'Готельні квартири на одній адресі можуть бути тільки від одного власника.'
                     )
                 })
 
             # ✅ Перевіряємо максимальну кількість кімнат
-            current_room_count = len(existing_on_address)
+            current_room_count = existing_on_address.count()
 
             if current_room_count >= MAX_HOTEL_ROOMS_PER_ADDRESS:  # ✅ Константа
                 raise ValidationError({
                     'address': (
                         f'Досягнуто максимальну кількість кімнат на одну адресу '
                         f'({MAX_HOTEL_ROOMS_PER_ADDRESS}). '
-                        f'Не можна додати більше кімнат на "{self.address}".'
+                        f'Не можна додати більше кімнат на "{self.location.address}".'
                     )
                 })
 
@@ -396,65 +354,37 @@ class Listing(TimeModel):
         """
         Нормалізація адреси для порівняння
         """
-        if not address:
-            return ''
-
-        # Прибираємо зайві пробіли
-        normalized = ' '.join(address.split())
-
-        # Нижній регістр
-        normalized = normalized.lower()
-
-        # Прибираємо крапки (вул. → вул)
-        normalized = normalized.replace('.', '')
-
-        # Стандартизуємо скорочення
-        replacements = {
-            'вулиця': 'вул',
-            'вул ': 'вул',
-            'проспект': 'просп',
-            'площа': 'пл',
-            'провулок': 'пров',
-            'будинок': 'буд',
-            'буд ': 'буд',
-            'квартира': 'кв',
-            'кв ': 'кв',
-        }
-
-        for old, new in replacements.items():
-            normalized = normalized.replace(old, new)
-
-        return normalized.strip()
+        return Location.normalize_address(address)
 
     @staticmethod
-    def count_hotel_rooms_at_address(country: str, city: str, address: str, owner) -> int:
+    def count_hotel_rooms_at_location(location: Location, owner) -> int:
         """
         ✅ Підрахунок кількості готельних кімнат на адресі
 
         Args:
-            country: Країна
-            city: Місто
-            address: Адреса
+            location: Локація
             owner: Власник
 
         Returns:
             int: Кількість готельних кімнат
         """
-        normalized_address = Listing.normalize_address(address)
+        if not location:
+            return 0
+
+        normalized_address = location.normalized_address
 
         # Знаходимо всі готельні квартири цього власника в місті
         existing = Listing.objects.filter(
             owner=owner,
-            country__iexact=country,
-            city__iexact=city,
+            location__country__iexact=location.country,
+            location__city__iexact=location.city,
             is_hotel_apartment=True
         )
 
         # Фільтруємо по нормалізованій адресі
-        count = sum(
-            1 for listing in existing
-            if Listing.normalize_address(listing.address) == normalized_address
-        )
+        count = existing.filter(
+            location__normalized_address=normalized_address
+        ).count()
 
         return count
 

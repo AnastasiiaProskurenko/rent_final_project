@@ -70,7 +70,8 @@ class SearchViewSet(viewsets.ViewSet):
             listings = listings.filter(
                 Q(title__icontains=query) |
                 Q(description__icontains=query) |
-                Q(city__icontains=query)
+                Q(location__city__icontains=query) |
+                Q(location__address__icontains=query)
             )
 
         # Фільтри
@@ -79,7 +80,7 @@ class SearchViewSet(viewsets.ViewSet):
         if filters.get('max_price'):
             listings = listings.filter(price__lte=filters['max_price'])
         if filters.get('city'):
-            listings = listings.filter(city__icontains=filters['city'])
+            listings = listings.filter(location__city__icontains=filters['city'])
         if filters.get('rooms'):
             listings = listings.filter(rooms=filters['rooms'])
         if filters.get('property_type'):

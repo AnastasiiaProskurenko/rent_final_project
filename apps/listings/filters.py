@@ -16,7 +16,7 @@ class ListingFilter(django_filters.FilterSet):
     class Meta:
         model = Listing
         fields = {
-            'city': ['exact', 'icontains'],
+            'location__city': ['exact', 'icontains'],
             'price': ['exact', 'gte', 'lte'],
             'is_active': ['exact'],
         }

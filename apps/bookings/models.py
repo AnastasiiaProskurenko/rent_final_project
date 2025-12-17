@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
 
-from apps.common.models import TimeModel
+from apps.common.models import Location, TimeModel
 from apps.common.enums import BookingStatus, PaymentStatus, CancellationPolicy
 from apps.common.constants import (
     # Booking constraints
@@ -60,6 +60,12 @@ class Booking(TimeModel):
         on_delete=models.CASCADE,
         related_name='bookings',
         verbose_name='Listing'
+    )
+    location = models.ForeignKey(
+        Location,
+        on_delete=models.PROTECT,
+        related_name='bookings',
+        verbose_name='Location'
     )
 
     # ============================================
@@ -192,6 +198,7 @@ class Booking(TimeModel):
         indexes = [
             models.Index(fields=['customer', '-created_at']),
             models.Index(fields=['listing', 'check_in', 'check_out']),
+            models.Index(fields=['location']),
             models.Index(fields=['status']),
             models.Index(fields=['payment_status']),
             models.Index(fields=['check_in', 'check_out']),
