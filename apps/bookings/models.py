@@ -112,7 +112,8 @@ class Booking(TimeModel):
             MinValueValidator(MIN_BOOKING_DURATION_DAYS),  # ✅ Константа
             MaxValueValidator(MAX_BOOKING_DURATION_DAYS),  # ✅ Константа
         ],
-        help_text=f'Від {MIN_BOOKING_DURATION_DAYS} до {MAX_BOOKING_DURATION_DAYS} ночей'
+        help_text=f'Від {MIN_BOOKING_DURATION_DAYS} до {MAX_BOOKING_DURATION_DAYS} ночей',
+        editable=False
     )
 
     base_price = models.DecimalField(
@@ -273,6 +274,7 @@ class Booking(TimeModel):
             return
 
         duration = (self.check_out - self.check_in).days
+        self.num_nights = duration
 
         # ✅ Мінімальна тривалість
         if duration < MIN_BOOKING_DURATION_DAYS:
