@@ -427,6 +427,40 @@ class Listing(TimeModel):
         }
 
 
+class ListingPrice(TimeModel):
+    """
+    Історія цін оголошень
+    Зберігає значення ціни для використання у бронюваннях
+    """
+
+    listing = models.ForeignKey(
+        Listing,
+        on_delete=models.CASCADE,
+        related_name='price_records',
+        verbose_name='Listing'
+    )
+
+    amount = models.DecimalField(
+        max_digits=PRICE_MAX_DIGITS,  # ✅ Константа
+        decimal_places=PRICE_DECIMAL_PLACES,  # ✅ Константа
+        verbose_name='Price per Night'
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Listing Price'
+        verbose_name_plural = 'Listing Prices'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['listing', 'amount'],
+                name='unique_listing_price_amount'
+            )
+        ]
+
+    def __str__(self):
+        return f'{self.listing.title} - {self.amount}'
+
+
 class Amenity(TimeModel):
     """
     Модель зручностей
