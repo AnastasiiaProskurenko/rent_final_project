@@ -347,9 +347,8 @@ class Booking(TimeModel):
         # Кількість ночей
         self.num_nights = (self.check_out - self.check_in).days
 
-        # Ціна за ніч (зберігаємо на момент бронювання)
-        if not self.price_per_night:
-            self.price_per_night = self.listing.price
+        # Ціна за ніч (зберігаємо на момент бронювання з оголошення)
+        self.price_per_night = self.listing.price
 
         # Базова ціна
         self.base_price = self.price_per_night * self.num_nights
