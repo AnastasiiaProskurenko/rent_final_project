@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import models
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -408,18 +410,24 @@ class Listing(TimeModel):
         """
         from apps.common.constants import PLATFORM_FEE_PERCENTAGE
 
-        base_price = self.price * num_nights
-        cleaning_fee = self.cleaning_fee or 0
+        cents = Decimal('0.01')
+        price_per_night = Decimal(self.price)
+        cleaning_fee_value = Decimal(self.cleaning_fee or 0)
 
-        subtotal = base_price + cleaning_fee
-        platform_fee = subtotal * (PLATFORM_FEE_PERCENTAGE / 100)  # ✅ Константа
+        base_price = (price_per_night * num_nights).quantize(cents)
+        cleaning_fee = cleaning_fee_value.quantize(cents)
 
-        total = subtotal + platform_fee
+        subtotal = (base_price + cleaning_fee).quantize(cents)
+        platform_fee = (
+            subtotal * (Decimal(PLATFORM_FEE_PERCENTAGE) / Decimal('100'))
+        ).quantize(cents)  # ✅ Константа
+
+        total = (subtotal + platform_fee).quantize(cents)
 
         return {
             'base_price': float(base_price),
             'nights': num_nights,
-            'price_per_night': float(self.price),
+            'price_per_night': float(price_per_night),
             'cleaning_fee': float(cleaning_fee),
             'platform_fee': float(platform_fee),
             'subtotal': float(subtotal),

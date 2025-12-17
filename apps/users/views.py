@@ -15,10 +15,34 @@ User = get_user_model()
 # API ViewSets (існуючий код)
 # ============================================
 
+
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [permissions.DjangoModelPermissionsOrAnonReadOnly]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        """
+        Обмежуємо видимість користувачів:
+        - адміністратори/суперюзери бачать всіх
+        - власники бачать тільки клієнтів, які бронювали їхні оголошення + себе
+        - інші користувачі бачать лише себе
+        """
+        user = self.request.user
+
+        if not user.is_authenticated:
+            return User.objects.none()
+
+        if user.is_admin():
+            return User.objects.all()
+
+        if user.is_owner():
+            related_customers = User.objects.filter(
+                bookings__listing__owner=user
+            )
+            return (related_customers | User.objects.filter(pk=user.pk)).distinct()
+
+        return User.objects.filter(pk=user.pk)
 
 
 class UserProfileViewSet(viewsets.ModelViewSet):

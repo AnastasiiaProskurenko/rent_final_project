@@ -701,6 +701,8 @@ class PublicListingSerializer(ListingSerializer):
     class Meta(ListingSerializer.Meta):
         fields = [
             'id',
+            'owner',
+            'owner_name',
             'title',
             'description',
             'property_type',
@@ -725,6 +727,7 @@ class PublicListingSerializer(ListingSerializer):
             'amenity_ids',
             'photos',
             'average_rating',
+            'owner_rating',
             'review_count',
             'is_active',
             'is_verified',
@@ -739,16 +742,28 @@ class PublicListingDetailSerializer(PublicListingSerializer):
 
     class Meta(PublicListingSerializer.Meta):
         fields = PublicListingSerializer.Meta.fields + [
+            'owner_info',
             'price_breakdown',
         ]
 
     price_breakdown = serializers.SerializerMethodField(read_only=True)
+    owner_info = serializers.SerializerMethodField(read_only=True)
 
     def get_price_breakdown(self, obj):
         return {
             '1_night': obj.get_price_for_nights(1),
             '3_nights': obj.get_price_for_nights(3),
             '7_nights': obj.get_price_for_nights(7),
+        }
+
+    def get_owner_info(self, obj):
+        return {
+            'id': obj.owner.id,
+            'name': obj.owner.get_full_name() or obj.owner.email,
+            'email': obj.owner.email,
+            'joined': obj.owner.date_joined,
+            'verified': getattr(obj.owner, 'is_verified', False),
+            'rating': self.get_owner_rating(obj),
         }
 
 
