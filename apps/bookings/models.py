@@ -359,24 +359,27 @@ class Booking(TimeModel):
         self.price_per_night = price_entry
 
         # Базова ціна
-        self.base_price = self.price_per_night.amount * self.num_nights
+        cents = Decimal('0.01')
+        self.base_price = (self.price_per_night.amount * self.num_nights).quantize(cents)
 
         # Прибиральний збір
         if not self.cleaning_fee:
-            self.cleaning_fee = self.listing.cleaning_fee or Decimal('0')
+            self.cleaning_fee = (self.listing.cleaning_fee or Decimal('0')).quantize(cents)
+        else:
+            self.cleaning_fee = Decimal(self.cleaning_fee).quantize(cents)
 
         # Політика скасування
         if not self.cancellation_policy:
             self.cancellation_policy = self.listing.cancellation_policy
 
         # Підсумок до комісії
-        subtotal = self.base_price + self.cleaning_fee
+        subtotal = (self.base_price + self.cleaning_fee).quantize(cents)
 
         # ✅ Комісія платформи (використовуємо константу)
-        self.platform_fee = subtotal * (Decimal(PLATFORM_FEE_PERCENTAGE) / Decimal('100'))
+        self.platform_fee = (subtotal * (Decimal(PLATFORM_FEE_PERCENTAGE) / Decimal('100'))).quantize(cents)
 
         # Загальна сума
-        self.total_price = subtotal + self.platform_fee
+        self.total_price = (subtotal + self.platform_fee).quantize(cents)
 
     @property
     def is_cancellable(self) -> bool:
