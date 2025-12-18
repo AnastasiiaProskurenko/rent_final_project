@@ -333,57 +333,65 @@ class Command(BaseCommand):
         ]
 
         listing_objects = []
+        listing_fields = field_names(Listing)
         for i in range(options["listings"]):
             obj = Listing()
 
             # Common FK relations
-            if "owner" in field_names(Listing):
-                safe_set(obj, "owner", pick(owners))
-            if "user" in field_names(Listing):
+            if not owners:
+                raise ValueError("No owners were created; cannot seed listings without owners")
+
+            if "owner" in listing_fields or "owner_id" in listing_fields:
+                chosen_owner = pick(owners)
+                if "owner" in listing_fields:
+                    safe_set(obj, "owner", chosen_owner)
+                if "owner_id" in listing_fields:
+                    safe_set(obj, "owner_id", chosen_owner.id)
+            if "user" in listing_fields:
                 safe_set(obj, "user", pick(owners))
 
             # IMPORTANT: location is required (location_id NOT NULL)
             chosen_loc = pick(locations) if locations else None
             if chosen_loc:
-                if "location" in field_names(Listing):
+                if "location" in listing_fields:
                     safe_set(obj, "location", chosen_loc)
-                if "location_id" in field_names(Listing):
+                if "location_id" in listing_fields:
                     safe_set(obj, "location_id", chosen_loc.id)
 
             # Common fields
-            if "title" in field_names(Listing):
+            if "title" in listing_fields:
                 city = getattr(obj.location, "city", getattr(obj.location, "name", "City")) if getattr(obj, "location", None) else "City"
                 safe_set(obj, "title", f"{pick(listing_titles)} in {city} #{i+1}")
-            if "description" in field_names(Listing):
+            if "description" in listing_fields:
                 safe_set(obj, "description", "Demo listing with realistic amenities and pricing.")
-            if "address" in field_names(Listing):
+            if "address" in listing_fields:
                 safe_set(obj, "address", f"{random.randint(1, 220)} {pick(['Central', 'Green', 'Park', 'River'])} Street")
-            if "wifi" in field_names(Listing):
+            if "wifi" in listing_fields:
                 safe_set(obj, "wifi", random.choice([True, True, False]))
-            if "pets_allowed" in field_names(Listing):
+            if "pets_allowed" in listing_fields:
                 safe_set(obj, "pets_allowed", random.choice([True, False]))
-            if "is_active" in field_names(Listing):
+            if "is_active" in listing_fields:
                 safe_set(obj, "is_active", True)
 
             # Numeric fields typical for rentals
-            if "num_guests" in field_names(Listing):
+            if "num_guests" in listing_fields:
                 safe_set(obj, "num_guests", random.randint(1, 8))
-            if "num_bedrooms" in field_names(Listing):
+            if "num_bedrooms" in listing_fields:
                 safe_set(obj, "num_bedrooms", random.randint(0, 4))
-            if "num_beds" in field_names(Listing):
+            if "num_beds" in listing_fields:
                 safe_set(obj, "num_beds", random.randint(1, 6))
-            if "num_bathrooms" in field_names(Listing):
+            if "num_bathrooms" in listing_fields:
                 safe_set(obj, "num_bathrooms", random.randint(1, 3))
 
             # IMPORTANT: num_rooms (your current crash)
-            if "num_rooms" in field_names(Listing):
+            if "num_rooms" in listing_fields:
                 bedrooms = getattr(obj, "num_bedrooms", random.randint(0, 4))
                 safe_set(obj, "num_rooms", max(1, int(bedrooms) + random.randint(1, 3)))
 
             # Pricing if listing has price fields directly
-            if "price_per_night" in field_names(Listing):
+            if "price_per_night" in listing_fields:
                 safe_set(obj, "price_per_night", Decimal(str(random.randint(25, 250))))
-            if "currency" in field_names(Listing):
+            if "currency" in listing_fields:
                 safe_set(obj, "currency", pick(["USD", "EUR", "UAH"]))
 
             # Fill any remaining required NOT NULL fields
