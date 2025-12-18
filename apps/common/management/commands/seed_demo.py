@@ -333,13 +333,20 @@ class Command(BaseCommand):
         ]
 
         listing_objects = []
+        listing_fields = field_names(Listing)
         for i in range(options["listings"]):
             obj = Listing()
 
             # Common FK relations
-            if "owner" in field_names(Listing):
-                safe_set(obj, "owner", pick(owners))
-            if "user" in field_names(Listing):
+            if not owners:
+                raise ValueError("No owners were created; cannot seed listings without owners")
+
+            if "owner" in listing_fields:
+                chosen_owner = pick(owners)
+                safe_set(obj, "owner", chosen_owner)
+            elif "owner_id" in listing_fields:
+                safe_set(obj, "owner_id", pick(owners).id)
+            if "user" in listing_fields:
                 safe_set(obj, "user", pick(owners))
 
             # IMPORTANT: location is required (location_id NOT NULL)
