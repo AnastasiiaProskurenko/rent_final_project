@@ -70,10 +70,9 @@ class UserProfile(TimeModel):
     @property
     def rating(self):
         from apps.reviews.models import OwnerRating
-        avg = OwnerRating.objects.filter(
-            owner=self.user
-        ).aggregate(avg=Avg('rating'))['avg']
-        return round(avg or 0.0, 2)
+        stats = OwnerRating.objects.filter(owner=self.user).first()
+        avg = stats.average_rating if stats else 0.0
+        return round(float(avg), 2)
 
     def __str__(self):
         return f'Profile: {self.user.get_full_name()} ({self.user.get_role_display()})'
