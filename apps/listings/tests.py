@@ -6,6 +6,7 @@ from rest_framework.test import APIClient
 from apps.common.enums import PropertyType, CancellationPolicy, UserRole
 from apps.common.models import Location
 from apps.listings.models import Listing
+from apps.search.models import SearchHistory
 from apps.users.models import User
 
 
@@ -73,3 +74,16 @@ class ListingVisibilityTests(TestCase):
         self.assertIn('owner_info', response.data)
         self.assertEqual(response.data['owner_info']['id'], self.owner_1.id)
         self.assertEqual(response.data['owner_info']['name'], self.owner_1.get_full_name() or self.owner_1.email)
+
+    def test_listing_search_request_is_saved_to_history(self):
+        response = self.client.get('/api/listings/', {'min_price': '70'})
+
+        self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(SearchHistory.objects.count(), 1)
+        history_entry = SearchHistory.objects.first()
+
+        self.assertIsNone(history_entry.user)
+        self.assertEqual(history_entry.query, '')
+        self.assertEqual(history_entry.filters, {'min_price': '70'})
+        self.assertEqual(history_entry.results_count, len(self._get_results(response)))

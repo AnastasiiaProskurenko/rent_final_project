@@ -45,6 +45,7 @@ class SearchHistory(TimeModel):
         verbose_name = 'Історія пошуку'
         verbose_name_plural = 'Історія пошуків'
         ordering = ['-created_at']
+        db_table = 'search_searchhistory'
         indexes = [
             models.Index(fields=['user', '-created_at']),
             models.Index(fields=['query']),

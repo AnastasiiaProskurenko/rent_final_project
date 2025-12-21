@@ -3,6 +3,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 
+from apps.search.models import SearchHistory
+
 from .models import Listing, ListingPhoto
 from .serializers import (
     ListingSerializer,
@@ -34,6 +36,33 @@ class ListingViewSet(viewsets.ModelViewSet):
     search_fields = ['title', 'description', 'location__city', 'location__address']
     ordering_fields = ['price', 'created_at', 'rating']
     ordering = ['-created_at']
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        search_query = request.query_params.get('search', '').strip()
+        filters_data = {
+            key: value
+            for key, value in request.query_params.items()
+            if key not in {'search', 'page', 'page_size', 'ordering'}
+            and value not in {'', None}
+        }
+
+        if search_query or filters_data:
+            SearchHistory.objects.create(
+                user=request.user if request.user.is_authenticated else None,
+                query=search_query,
+                filters=filters_data,
+                results_count=queryset.count(),
+            )
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
     def get_serializer_class(self):
         """Використовувати детальний серіалізатор для retrieve"""
