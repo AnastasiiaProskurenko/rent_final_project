@@ -1,15 +1,23 @@
+import base64
+import datetime
 import random
 import string
-import datetime
 from decimal import Decimal
 
+from django.apps import apps
+from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand
 from django.db import transaction
-from django.apps import apps
 from django.utils import timezone
 
 
 DEMO_DOMAIN = "demo.local"
+
+
+# 1x1 PNG (валидное изображение), чтобы пройти ImageField у ListingPhoto
+_PNG_1x1 = base64.b64decode(
+    b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
+)
 
 
 def randstr(n=8):
@@ -23,7 +31,6 @@ def pick(seq):
 def field_names(model):
     names = set()
     for f in model._meta.get_fields():
-        # беремо і python-ім'я поля (name), і DB-ім'я (attname: *_id для FK)
         if hasattr(f, "name"):
             names.add(f.name)
         if hasattr(f, "attname"):
@@ -31,15 +38,7 @@ def field_names(model):
     return names
 
 
-
-def get_model(label_app, model_name):
-    return apps.get_model(label_app, model_name)
-
-
 def is_required_field(f):
-    # Required for DB insert if:
-    # - it's a concrete field (not m2m reverse)
-    # - not null AND has no default AND not auto-created
     if not getattr(f, "concrete", False):
         return False
     if getattr(f, "auto_created", False):
@@ -54,57 +53,46 @@ def is_required_field(f):
         return False
     if f.has_default():
         return False
-    # Auto fields
     internal = f.get_internal_type()
     if internal in ("AutoField", "BigAutoField", "SmallAutoField"):
         return False
     return True
 
 
-def safe_set(obj, name, value):
-    if hasattr(obj, name):
-        setattr(obj, name, value)
-
-
 def coerce_default_for_field(f):
-    """Generate a safe default value for required NOT NULL fields without defaults."""
     internal = f.get_internal_type()
 
-    # Booleans
     if internal in ("BooleanField",):
         return False
 
-    # Integers
-    if internal in ("IntegerField", "BigIntegerField", "SmallIntegerField", "PositiveIntegerField", "PositiveSmallIntegerField"):
-        # special realism
+    if internal in (
+        "IntegerField", "BigIntegerField", "SmallIntegerField",
+        "PositiveIntegerField", "PositiveSmallIntegerField"
+    ):
         if f.name in ("num_rooms", "rooms"):
             return random.randint(1, 6)
         if f.name in ("num_bedrooms", "bedrooms"):
             return random.randint(0, 4)
-        if f.name in ("num_beds", "beds"):
-            return random.randint(1, 6)
         if f.name in ("num_bathrooms", "bathrooms"):
             return random.randint(1, 3)
-        if f.name in ("num_guests", "guests", "capacity"):
+        if f.name in ("max_guests", "num_guests", "guests", "capacity"):
             return random.randint(1, 8)
-        if f.name in ("num_nights", "nights"):
-            return random.randint(1, 14)
+        if f.name in ("order",):
+            return 0
         return random.randint(1, 10)
 
-    # Decimals / floats
     if internal in ("DecimalField",):
-        # use field precision if possible
         return Decimal("0.00")
+
     if internal in ("FloatField",):
         return float(random.randint(1, 10))
 
-    # Dates
     if internal in ("DateField",):
         return timezone.now().date()
+
     if internal in ("DateTimeField",):
         return timezone.now()
 
-    # Text
     if internal in ("CharField", "TextField", "SlugField", "EmailField", "URLField"):
         if f.name == "email":
             return f"{randstr(10)}@{DEMO_DOMAIN}"
@@ -118,30 +106,20 @@ def coerce_default_for_field(f):
             return pick(["Kyiv", "Lviv", "Odesa", "Kharkiv", "Dnipro", "Warsaw", "Krakow", "Berlin"])
         if f.name == "country":
             return pick(["Ukraine", "Poland", "Germany"])
-        if f.name == "address":
-            return f"{random.randint(1, 200)} {pick(['Shevchenka', 'Khreshchatyk', 'Bandery', 'Central'])} St"
+        if f.name in ("address", "normalized_address"):
+            return f"{random.randint(1, 500)} {pick(['Shevchenka', 'Khreshchatyk', 'Bandery', 'Central'])} St {randstr(4)}"
         if f.name == "description":
             return "Demo description."
-        if f.name == "phone":
-            return f"+380{random.randint(100000000, 999999999)}"
         if f.name == "status":
-            return pick(["active", "inactive", "draft"])
-        if f.name == "type":
-            return pick(["apartment", "house", "studio"])
-        if f.name == "currency":
-            return pick(["USD", "EUR", "UAH"])
-        if f.name == "image":
-            return ""
-        if f.name == "photo":
-            return ""
+            return "pending"
+        if f.name == "transaction_id":
+            return f"tx_{randstr(16)}"
         return f"demo_{randstr(12)}"
 
-    # Fallback
     return None
 
 
 def fill_required_fields(obj):
-    """Fill required NOT NULL fields that are still empty."""
     for f in obj._meta.fields:
         if not is_required_field(f):
             continue
@@ -153,8 +131,13 @@ def fill_required_fields(obj):
             setattr(obj, f.name, generated)
 
 
+def safe_set(obj, name, value):
+    if hasattr(obj, name):
+        setattr(obj, name, value)
+
+
 class Command(BaseCommand):
-    help = "Seed demo data for the project (owners, customers, listings, bookings)."
+    help = "Seed demo data for the project (locations, amenities, users, listings, bookings, payments, reviews)."
 
     def add_arguments(self, parser):
         parser.add_argument("--clean", action="store_true", help="Delete existing demo data before seeding")
@@ -165,44 +148,43 @@ class Command(BaseCommand):
         parser.add_argument("--seed", type=int, default=42)
 
     @transaction.atomic
-    def handle(self, *args, **options):
-        random.seed(options["seed"])
+    def handle(self, *args, **opts):
+        random.seed(opts["seed"])
 
         # Models
-        User = get_model("users", "User")
-        Location = get_model("common", "Location")
-        Amenity = get_model("listings", "Amenity")
-        Listing = get_model("listings", "Listing")
-        ListingPhoto = get_model("listings", "ListingPhoto")
-        ListingPrice = get_model("listings", "ListingPrice")
-        Booking = get_model("bookings", "Booking")
+        User = apps.get_model("users", "User")
+        Location = apps.get_model("common", "Location")
+        Amenity = apps.get_model("listings", "Amenity")
+        Listing = apps.get_model("listings", "Listing")
+        ListingPhoto = apps.get_model("listings", "ListingPhoto")
+        ListingPrice = apps.get_model("listings", "ListingPrice")
+        Booking = apps.get_model("bookings", "Booking")
+        Payment = apps.get_model("payments", "Payment")
+        Review = apps.get_model("reviews", "Review")
 
-        # Optional models (create if exist)
-        ReviewListingRating = apps.get_model("reviews", "ListingRating") if apps.is_installed("apps.reviews") else None
+        from apps.common.enums import BookingStatus, PaymentStatus, CancellationPolicy, PropertyType
+        from apps.common.constants import PLATFORM_FEE_PERCENTAGE, MIN_BOOKING_DURATION_DAYS, MAX_BOOKING_DURATION_DAYS
 
-        if options["clean"]:
+        # ---------- CLEAN ----------
+        if opts["clean"]:
             self.stdout.write("Cleaning demo data...")
 
-            # Order matters: children -> parents
-            ListingPrice.objects.all().delete()
-            self.stdout.write("Deleted listing prices")
+            # order: children -> parents
+            Review.objects.all().delete()
+            self.stdout.write("Deleted reviews")
+
+            Payment.objects.all().delete()
+            self.stdout.write("Deleted payments")
+
+            Booking.objects.all().delete()
+            self.stdout.write("Deleted bookings")
 
             ListingPhoto.objects.all().delete()
             self.stdout.write("Deleted listing photos")
 
-            # Booking depends on listing + user
-            Booking.objects.all().delete()
-            self.stdout.write("Deleted bookings")
+            ListingPrice.objects.all().delete()
+            self.stdout.write("Deleted listing prices")
 
-            # Reviews depend on listing/user (optional)
-            try:
-                if ReviewListingRating:
-                    ReviewListingRating.objects.all().delete()
-                    self.stdout.write("Deleted listing ratings")
-            except Exception:
-                pass
-
-            # M2M through table auto cleared with listing delete
             Listing.objects.all().delete()
             self.stdout.write("Deleted listings")
 
@@ -212,12 +194,14 @@ class Command(BaseCommand):
             Location.objects.all().delete()
             self.stdout.write("Deleted locations")
 
-            # Remove demo users
             User.objects.filter(email__endswith=f"@{DEMO_DOMAIN}").delete()
             self.stdout.write("Deleted demo users")
 
-        # ---------- Locations ----------
+        # ---------- LOCATIONS ----------
         self.stdout.write("Creating locations...")
+
+        # ВАЖНО: у вас UNIQUE(country, city, normalized_address)
+        # normalized_address формируется из address, поэтому address должен быть уникальным в рамках city+country.
         cities = [
             ("Kyiv", "Ukraine"),
             ("Lviv", "Ukraine"),
@@ -230,14 +214,35 @@ class Command(BaseCommand):
         ]
 
         locations = []
-        for city, country in cities:
+        used_triplets = set()  # (country, city, normalized_key_like_address)
+
+        # делаем минимум opts["listings"] локаций, чтобы у каждого listing была своя адреса (и не ловить address-валидации listings)
+        num_locations = max(opts["listings"], 30)
+
+        for i in range(num_locations):
+            city, country = pick(cities)
+            # уникальная адреса
+            address = f"{random.randint(1, 999)} {pick(['Shevchenka', 'Khreshchatyk', 'Bandery', 'Central', 'Green', 'River'])} St, apt {i+1}-{randstr(3)}"
+            key = (country.lower(), city.lower(), address.lower())
+            while key in used_triplets:
+                address = f"{random.randint(1, 999)} {pick(['Shevchenka', 'Khreshchatyk', 'Bandery', 'Central', 'Green', 'River'])} St, apt {i+1}-{randstr(4)}"
+                key = (country.lower(), city.lower(), address.lower())
+            used_triplets.add(key)
+
             loc = Location()
-            # common patterns: name/city/country/lat/lng
-            for nm in ("name", "city"):
-                if nm in field_names(Location):
-                    safe_set(loc, nm, city)
+            # обычно есть country/city/address, а normalized_address модель сама посчитает в save()
             if "country" in field_names(Location):
                 safe_set(loc, "country", country)
+            if "city" in field_names(Location):
+                safe_set(loc, "city", city)
+            if "address" in field_names(Location):
+                safe_set(loc, "address", address)
+
+            # на случай, если normalized_address обязательное и НЕ считается автоматически
+            if "normalized_address" in field_names(Location) and not getattr(loc, "normalized_address", None):
+                safe_set(loc, "normalized_address", address.lower())
+
+            # координаты если есть
             if "latitude" in field_names(Location):
                 safe_set(loc, "latitude", Decimal(str(round(random.uniform(46, 54), 6))))
             if "longitude" in field_names(Location):
@@ -251,7 +256,7 @@ class Command(BaseCommand):
             loc.save()
             locations.append(loc)
 
-        # ---------- Amenities ----------
+        # ---------- AMENITIES ----------
         self.stdout.write("Creating amenities...")
         amenity_names = [
             "Wi-Fi", "Kitchen", "Air conditioning", "Washer", "Dryer",
@@ -263,52 +268,50 @@ class Command(BaseCommand):
             a = Amenity()
             if "name" in field_names(Amenity):
                 a.name = name
+            if "icon" in field_names(Amenity):
+                a.icon = randstr(6)
+            if "description" in field_names(Amenity):
+                a.description = "Demo amenity"
             fill_required_fields(a)
             a.save()
             amenities.append(a)
 
-        # ---------- Users ----------
-        def create_demo_user(role_prefix: str, i: int):
-            email = f"{role_prefix}{i}@{DEMO_DOMAIN}"
-            username = f"{role_prefix}{i}"
+        # ---------- USERS ----------
+        def create_demo_user(prefix: str, i: int):
+            email = f"{prefix}{i}@{DEMO_DOMAIN}"
+            username = f"{prefix}{i}"
 
-            # Create via manager if possible; some custom managers require username
-            manager = User.objects
             kwargs = {}
-            # USERNAME_FIELD can be email/username; we still pass both if exist.
             if "email" in field_names(User):
                 kwargs["email"] = email
             if "username" in field_names(User):
                 kwargs["username"] = username
 
-            # If create_user exists, use it; otherwise plain create()
+            manager = User.objects
+            user = None
+
             if hasattr(manager, "create_user"):
+                # у вас create_user требует username (вы это ловили ошибкой)
                 try:
                     user = manager.create_user(password="demo12345", **kwargs)
                 except TypeError:
-                    # Fallback: create then set_password
-                    user = manager.create(**kwargs)
-                    user.set_password("demo12345")
-                    user.save()
+                    # если требует строго (username,email,password)
+                    user = manager.create_user(username=kwargs.get("username", username), email=kwargs.get("email", email), password="demo12345")
             else:
                 user = manager.create(**kwargs)
                 if hasattr(user, "set_password"):
                     user.set_password("demo12345")
                     user.save()
 
-            # Optional flags/roles
-            for flag in ("is_owner", "is_customer", "is_staff", "is_active"):
-                if flag in field_names(User):
-                    if flag == "is_active":
-                        safe_set(user, flag, True)
-                    elif flag == "is_staff":
-                        safe_set(user, flag, False)
-                    elif flag == "is_owner":
-                        safe_set(user, flag, role_prefix.startswith("owner"))
-                    elif flag == "is_customer":
-                        safe_set(user, flag, role_prefix.startswith("customer"))
+            # is_active / is_staff если есть
+            if "is_active" in field_names(User):
+                safe_set(user, "is_active", True)
+            if "is_staff" in field_names(User):
+                safe_set(user, "is_staff", False)
 
-            # Names if exist
+            # флаги is_owner/is_customer в вашей модели НЕТ (вы это ловили ошибкой)
+            # поэтому не ставим их вообще.
+
             if "first_name" in field_names(User):
                 safe_set(user, "first_name", pick(["Alex", "Maria", "Ihor", "Olena", "Andrii", "Kateryna"]))
             if "last_name" in field_names(User):
@@ -319,12 +322,12 @@ class Command(BaseCommand):
             return user
 
         self.stdout.write("Creating owners...")
-        owners = [create_demo_user("owner", i + 1) for i in range(options["owners"])]
+        owners = [create_demo_user("owner", i + 1) for i in range(opts["owners"])]
 
         self.stdout.write("Creating customers...")
-        customers = [create_demo_user("customer", i + 1) for i in range(options["customers"])]
+        customers = [create_demo_user("customer", i + 1) for i in range(opts["customers"])]
 
-        # ---------- Listings ----------
+        # ---------- LISTINGS ----------
         self.stdout.write("Creating listings (with photos, amenities, prices)...")
 
         listing_titles = [
@@ -332,173 +335,275 @@ class Command(BaseCommand):
             "Business Suite", "Family Home", "Minimalist Space", "Panorama View", "Quiet Retreat",
         ]
 
+        property_type_values = [c[0] for c in PropertyType.choices]  # e.g. ("apartment","house",...)
+        cancellation_values = [c[0] for c in CancellationPolicy.choices]
+
         listing_objects = []
-        listing_fields = field_names(Listing)
-        for i in range(options["listings"]):
-            obj = Listing()
+        for i in range(opts["listings"]):
+            owner = pick(owners)
+            loc = locations[i % len(locations)]  # гарантировано разные адреса
 
-            # Common FK relations
-            if not owners:
-                raise ValueError("No owners were created; cannot seed listings without owners")
+            num_rooms = random.randint(1, 6)
+            num_bedrooms = random.randint(0, min(4, num_rooms))
+            num_bathrooms = random.randint(1, 3)
+            max_guests = random.randint(1, 8)
+            area = Decimal(str(random.randint(18, 140))).quantize(Decimal("0.01"))
+            price = Decimal(str(random.randint(25, 250))).quantize(Decimal("0.01"))
+            cleaning_fee = Decimal(str(random.randint(0, 60))).quantize(Decimal("0.01"))
 
-            if "owner" in listing_fields:
-                chosen_owner = pick(owners)
-                safe_set(obj, "owner", chosen_owner)
-            elif "owner_id" in listing_fields:
-                safe_set(obj, "owner_id", pick(owners).id)
-            if "user" in listing_fields:
-                safe_set(obj, "user", pick(owners))
+            obj = Listing(
+                owner=owner,
+                title=f"{pick(listing_titles)} in {loc.city} #{i+1}",
+                description="Demo listing with realistic amenities and pricing.",
+                location=loc,
+                is_hotel_apartment=False,  # проще: уникальные адреса => не нужно отельное правило
+                property_type=pick(property_type_values),
+                num_rooms=num_rooms,
+                num_bedrooms=num_bedrooms,
+                num_bathrooms=num_bathrooms,
+                max_guests=max_guests,
+                area=area,
+                price=price,
+                cleaning_fee=cleaning_fee,
+                cancellation_policy=pick(cancellation_values),
+                is_active=True,
+                is_verified=random.choice([True, False]),
+            )
 
-            # IMPORTANT: location is required (location_id NOT NULL)
-            chosen_loc = pick(locations) if locations else None
-            if chosen_loc:
-                if "location" in field_names(Listing):
-                    safe_set(obj, "location", chosen_loc)
-                if "location_id" in field_names(Listing):
-                    safe_set(obj, "location_id", chosen_loc.id)
-
-            # Common fields
-            if "title" in field_names(Listing):
-                city = getattr(obj.location, "city", getattr(obj.location, "name", "City")) if getattr(obj, "location", None) else "City"
-                safe_set(obj, "title", f"{pick(listing_titles)} in {city} #{i+1}")
-            if "description" in field_names(Listing):
-                safe_set(obj, "description", "Demo listing with realistic amenities and pricing.")
-            if "address" in field_names(Listing):
-                safe_set(obj, "address", f"{random.randint(1, 220)} {pick(['Central', 'Green', 'Park', 'River'])} Street")
-            if "wifi" in field_names(Listing):
-                safe_set(obj, "wifi", random.choice([True, True, False]))
-            if "pets_allowed" in field_names(Listing):
-                safe_set(obj, "pets_allowed", random.choice([True, False]))
-            if "is_active" in field_names(Listing):
-                safe_set(obj, "is_active", True)
-
-            # Numeric fields typical for rentals
-            if "num_guests" in field_names(Listing):
-                safe_set(obj, "num_guests", random.randint(1, 8))
-            if "num_bedrooms" in field_names(Listing):
-                safe_set(obj, "num_bedrooms", random.randint(0, 4))
-            if "num_beds" in field_names(Listing):
-                safe_set(obj, "num_beds", random.randint(1, 6))
-            if "num_bathrooms" in field_names(Listing):
-                safe_set(obj, "num_bathrooms", random.randint(1, 3))
-
-            # IMPORTANT: num_rooms (your current crash)
-            if "num_rooms" in field_names(Listing):
-                bedrooms = getattr(obj, "num_bedrooms", random.randint(0, 4))
-                safe_set(obj, "num_rooms", max(1, int(bedrooms) + random.randint(1, 3)))
-
-            # Pricing if listing has price fields directly
-            if "price_per_night" in field_names(Listing):
-                safe_set(obj, "price_per_night", Decimal(str(random.randint(25, 250))))
-            if "currency" in field_names(Listing):
-                safe_set(obj, "currency", pick(["USD", "EUR", "UAH"]))
-
-            # Fill any remaining required NOT NULL fields
             fill_required_fields(obj)
             obj.save()
             listing_objects.append(obj)
 
-            # Attach amenities M2M (if exists)
-            if "amenities" in field_names(Listing) and hasattr(obj, "amenities"):
+            # M2M amenities
+            if hasattr(obj, "amenities"):
                 obj.amenities.set(random.sample(amenities, k=random.randint(3, min(7, len(amenities)))))
 
-            # Create photos
-            # Some schemas have fields: listing (FK), url/image, is_cover
+            # ListingPrice: amount == listing.price (и уникален per listing)
+            ListingPrice.objects.get_or_create(listing=obj, amount=obj.price)
+
+            # Photos: ImageField обязателен -> кладем 1x1 png
             photos_count = random.randint(1, 4)
             for p in range(photos_count):
-                ph = ListingPhoto()
-                if "listing" in field_names(ListingPhoto):
-                    safe_set(ph, "listing", obj)
-                if "url" in field_names(ListingPhoto):
-                    safe_set(ph, "url", f"https://picsum.photos/seed/{obj.id}-{p}/1200/800")
-                if "image" in field_names(ListingPhoto):
-                    # keep empty string if image is CharField; if ImageField, leaving None might break
-                    safe_set(ph, "image", "")
-                if "is_cover" in field_names(ListingPhoto):
-                    safe_set(ph, "is_cover", p == 0)
+                ph = ListingPhoto(listing=obj)
+                if "caption" in field_names(ListingPhoto):
+                    ph.caption = f"Demo photo {p+1}"
+                if "order" in field_names(ListingPhoto):
+                    ph.order = p
+                # image обязательно
+                ph.image.save(
+                    f"demo_{obj.id}_{p}.png",
+                    ContentFile(_PNG_1x1),
+                    save=False
+                )
                 fill_required_fields(ph)
                 ph.save()
 
-            # Create prices (ListingPrice model from your repo)
-            # Common fields: listing, start_date, end_date, price_per_night
-            base_price = Decimal(str(random.randint(30, 220)))
-            # 3 seasonal ranges
-            seasons = [
-                (timezone.now().date() - datetime.timedelta(days=60), timezone.now().date() + datetime.timedelta(days=30), base_price),
-                (timezone.now().date() + datetime.timedelta(days=31), timezone.now().date() + datetime.timedelta(days=120), base_price * Decimal("1.15")),
-                (timezone.now().date() + datetime.timedelta(days=121), timezone.now().date() + datetime.timedelta(days=240), base_price * Decimal("0.95")),
-            ]
-            for sd, ed, pr in seasons:
-                lp = ListingPrice()
-                if "listing" in field_names(ListingPrice):
-                    safe_set(lp, "listing", obj)
-                if "start_date" in field_names(ListingPrice):
-                    safe_set(lp, "start_date", sd)
-                if "end_date" in field_names(ListingPrice):
-                    safe_set(lp, "end_date", ed)
-                if "price_per_night" in field_names(ListingPrice):
-                    safe_set(lp, "price_per_night", pr.quantize(Decimal("0.01")))
-                if "currency" in field_names(ListingPrice):
-                    safe_set(lp, "currency", pick(["USD", "EUR", "UAH"]))
-                fill_required_fields(lp)
-                lp.save()
-
-        # ---------- Bookings ----------
+        # ---------- BOOKINGS ----------
         self.stdout.write("Creating bookings...")
-        bookings_created = 0
-        tries = 0
-        max_tries = options["bookings"] * 10
 
-        while bookings_created < options["bookings"] and tries < max_tries:
-            tries += 1
+        today = timezone.now().date()
+
+        # Распределяем статусы
+        total = opts["bookings"]
+        completed_count = max(1, total // 5)
+        cancelled_count = max(1, total // 5)
+        active_count = total - completed_count - cancelled_count
+
+        # 1) COMPLETED (прошлые даты) -> bulk_create, чтобы обойти запрет на прошлое
+        completed_bookings = []
+        for i in range(completed_count):
             listing = pick(listing_objects)
             customer = pick(customers)
 
-            start = timezone.now().date() + datetime.timedelta(days=random.randint(-20, 60))
-            nights = random.randint(1, 10)
+            nights = random.randint(int(MIN_BOOKING_DURATION_DAYS), min(int(MAX_BOOKING_DURATION_DAYS), 7))
+            # делаем завершение в прошлом
+            check_out = today - datetime.timedelta(days=random.randint(1, 25))
+            check_in = check_out - datetime.timedelta(days=nights)
+
+            # ListingPrice на момент брони
+            price_entry, _ = ListingPrice.objects.get_or_create(listing=listing, amount=listing.price)
+
+            # считаем цены точно по вашей логике (аналог Booking._calculate_prices)
+            cents = Decimal("0.01")
+            base_price = (price_entry.amount * nights).quantize(cents)
+            cleaning_fee_val = (listing.cleaning_fee or Decimal("0")).quantize(cents)
+            subtotal = (base_price + cleaning_fee_val).quantize(cents)
+            platform_fee = (subtotal * (Decimal(PLATFORM_FEE_PERCENTAGE) / Decimal("100"))).quantize(cents)
+            total_price = (subtotal + platform_fee).quantize(cents)
+
+            b = Booking(
+                customer=customer,
+                listing=listing,
+                location=listing.location,
+                check_in=check_in,
+                check_out=check_out,
+                num_guests=min(listing.max_guests, random.randint(1, 6)),
+                price_per_night=price_entry,
+                num_nights=nights,
+                base_price=base_price,
+                cleaning_fee=cleaning_fee_val,
+                platform_fee=platform_fee,
+                total_price=total_price,
+                status=BookingStatus.COMPLETED,
+                payment_status=PaymentStatus.COMPLETED,
+                cancellation_policy=listing.cancellation_policy,
+                special_requests="",
+            )
+            completed_bookings.append(b)
+
+        Booking.objects.bulk_create(completed_bookings)
+
+        # вытаскиваем их обратно с id
+        completed_bookings_db = list(
+            Booking.objects.filter(status=BookingStatus.COMPLETED).order_by("-id")[:completed_count]
+        )
+
+        # 2) CANCELLED (будущие даты) -> обычный save (валидируется)
+        cancelled_bookings_db = []
+        # чтобы не ловить overlap — двигаем даты последовательно по листингам
+        next_start_by_listing = {l.id: today + datetime.timedelta(days=2) for l in listing_objects}
+
+        for _ in range(cancelled_count):
+            listing = pick(listing_objects)
+            customer = pick(customers)
+
+            start = next_start_by_listing[listing.id]
+            nights = random.randint(int(MIN_BOOKING_DURATION_DAYS), min(int(MAX_BOOKING_DURATION_DAYS), 7))
             end = start + datetime.timedelta(days=nights)
+            next_start_by_listing[listing.id] = end + datetime.timedelta(days=random.randint(1, 3))
 
-            b = Booking()
-            if "listing" in field_names(Booking):
-                safe_set(b, "listing", listing)
-            if "customer" in field_names(Booking):
-                safe_set(b, "customer", customer)
-            if "user" in field_names(Booking):
-                safe_set(b, "user", customer)
-            if "start_date" in field_names(Booking):
-                safe_set(b, "start_date", start)
-            if "end_date" in field_names(Booking):
-                safe_set(b, "end_date", end)
-            if "num_nights" in field_names(Booking):
-                safe_set(b, "num_nights", nights)
-
-            # Price fields (your repo changed these recently)
-            price = Decimal(str(random.randint(30, 220))).quantize(Decimal("0.01"))
-            if "price_per_night" in field_names(Booking):
-                safe_set(b, "price_per_night", price)
-            if "total_price" in field_names(Booking):
-                safe_set(b, "total_price", (price * Decimal(nights)).quantize(Decimal("0.01")))
-
-            # status if exists
-            if "status" in field_names(Booking):
-                safe_set(b, "status", pick(["pending", "confirmed", "cancelled", "completed"]))
-
-            fill_required_fields(b)
-
-            try:
+            b = Booking(
+                customer=customer,
+                listing=listing,
+                location=listing.location,
+                check_in=start,
+                check_out=end,
+                num_guests=min(listing.max_guests, random.randint(1, 6)),
+                status=BookingStatus.CANCELLED,
+                payment_status=pick([PaymentStatus.PENDING, PaymentStatus.FAILED, PaymentStatus.REFUNDED]),
+                cancellation_policy=listing.cancellation_policy,
+                cancellation_reason="Demo cancellation",
+                special_requests="",
+            )
+            b.save()  # full_clean внутри модели
+            if hasattr(b, "cancelled_at"):
+                b.cancelled_at = timezone.now() - datetime.timedelta(days=random.randint(0, 7))
                 b.save()
-            except Exception:
-                # If collision/validation occurs, skip
+            cancelled_bookings_db.append(b)
+
+        # 3) ACTIVE (pending/confirmed/in_progress) -> обычный save (валидируется)
+        active_statuses = [BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.IN_PROGRESS]
+        active_bookings_db = []
+        for _ in range(active_count):
+            listing = pick(listing_objects)
+            customer = pick(customers)
+
+            start = next_start_by_listing[listing.id]
+            nights = random.randint(int(MIN_BOOKING_DURATION_DAYS), min(int(MAX_BOOKING_DURATION_DAYS), 10))
+            end = start + datetime.timedelta(days=nights)
+            next_start_by_listing[listing.id] = end + datetime.timedelta(days=random.randint(1, 2))
+
+            status = pick(active_statuses)
+            pay_status = pick([PaymentStatus.PENDING, PaymentStatus.COMPLETED])
+
+            b = Booking(
+                customer=customer,
+                listing=listing,
+                location=listing.location,
+                check_in=start,
+                check_out=end,
+                num_guests=min(listing.max_guests, random.randint(1, 6)),
+                status=status,
+                payment_status=pay_status,
+                cancellation_policy=listing.cancellation_policy,
+                special_requests=pick(["", "", "Late check-in please", "Need quiet room", "Baby bed if possible"]),
+            )
+            b.save()
+            active_bookings_db.append(b)
+
+        all_bookings_db = completed_bookings_db + cancelled_bookings_db + active_bookings_db
+
+        # ---------- PAYMENTS ----------
+        # Payment.clean требует amount == booking.total_price -> ставим ровно booking.total_price
+        payments_created = 0
+        for b in all_bookings_db:
+            # OneToOne: если уже есть — пропускаем
+            if hasattr(b, "payment"):
                 continue
 
-            bookings_created += 1
+            status = b.payment_status
+            if status not in [c[0] for c in PaymentStatus.choices]:
+                status = PaymentStatus.PENDING
 
+            p = Payment(
+                booking=b,
+                customer=b.customer,
+                amount=b.total_price,
+                status=status,
+                transaction_id=f"tx_{randstr(18)}",
+                payment_date=timezone.now() - datetime.timedelta(days=random.randint(0, 30)) if status == PaymentStatus.COMPLETED else None,
+                notes="Demo payment",
+            )
+            p.save()
+            payments_created += 1
+
+        # ---------- REVIEWS ----------
+        # validate_review_after_stay(booking) требует today >= booking.check_out
+        # Поэтому создаем отзывы только для COMPLETED (у них check_out в прошлом).
+        self.stdout.write("Creating reviews...")
+
+        reviews_created = 0
+        review_fields = field_names(Review)
+
+        # некоторые проекты делают OneToOne(booking) или FK(booking)
+        # создадим по 1 review на completed booking
+        for b in completed_bookings_db:
+            r = Review()
+
+            if "booking" in review_fields:
+                safe_set(r, "booking", b)
+            if "listing" in review_fields:
+                safe_set(r, "listing", b.listing)
+            if "customer" in review_fields:
+                safe_set(r, "customer", b.customer)
+            if "user" in review_fields and "customer" not in review_fields:
+                safe_set(r, "user", b.customer)
+
+            if "rating" in review_fields:
+                safe_set(r, "rating", random.randint(3, 5))
+            if "comment" in review_fields:
+                safe_set(r, "comment", pick([
+                    "Everything was great, clean and comfortable.",
+                    "Nice place, good location. Would stay again.",
+                    "Good value for money. Smooth check-in.",
+                    "Cozy apartment, friendly host.",
+                ]))
+            if "is_published" in review_fields:
+                safe_set(r, "is_published", True)
+
+            fill_required_fields(r)
+
+            try:
+                r.save()  # тут отработает validate_review_after_stay, и он пройдет
+                reviews_created += 1
+            except Exception:
+                # если у Review есть дополнительные строгие правила — просто пропустим
+                continue
+
+        # ---------- DONE ----------
         self.stdout.write(self.style.SUCCESS(
-            f"Seed completed: locations={Location.objects.count()}, amenities={Amenity.objects.count()}, "
-            f"owners={len(owners)}, customers={len(customers)}, listings={Listing.objects.count()}, "
-            f"bookings={Booking.objects.count()}"
+            "Seed completed: "
+            f"locations={Location.objects.count()}, "
+            f"amenities={Amenity.objects.count()}, "
+            f"owners={len(owners)}, "
+            f"customers={len(customers)}, "
+            f"listings={Listing.objects.count()}, "
+            f"bookings={Booking.objects.count()}, "
+            f"payments={Payment.objects.count()}, "
+            f"reviews={Review.objects.count()}"
         ))
 
         self.stdout.write(self.style.WARNING(
-            "Demo credentials: any demo user password is demo12345 (emails: owner1@demo.local, customer1@demo.local, ...)"
+            "Demo credentials: password demo12345 (owner1@demo.local / customer1@demo.local / ...)"
         ))
+        self.stdout.write(f"Reviews created: {reviews_created}")

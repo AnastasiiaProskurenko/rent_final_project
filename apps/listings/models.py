@@ -530,6 +530,9 @@ class ListingPhoto(TimeModel):
         verbose_name='Order',
         help_text='Порядок відображення фото'
     )
+    is_main = models.BooleanField(
+        default=False,
+        verbose_name='Is main photo')
 
     class Meta:
         ordering = ['order', 'created_at']

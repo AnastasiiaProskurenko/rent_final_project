@@ -40,7 +40,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         'listing__owner',
         'listing__location',
         'location',
-        'created_by'
+
     ).all()
 
     permission_classes = [permissions.IsAuthenticated]
