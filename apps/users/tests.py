@@ -1,12 +1,13 @@
 from decimal import Decimal
 from datetime import timedelta
 
+from django.db import IntegrityError
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
-from apps.users.models import User
+from apps.users.models import RefreshTokenRecord, User, UserProfile
 from apps.common.enums import UserRole, PropertyType, CancellationPolicy
 from apps.common.models import Location
 from apps.listings.models import Listing, ListingPrice
@@ -157,3 +158,149 @@ class UserAuthApiTests(APITestCase):
         results = response.data['results'] if 'results' in response.data else response.data
         returned_emails = [user['email'] for user in results]
         self.assertIn(self.user.email, returned_emails)
+
+
+class UserModelTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='baseuser',
+            email='base@example.com',
+            password='strong-pass-123',
+            first_name='Base',
+            last_name='User',
+        )
+
+    def test_email_is_unique(self):
+        with self.assertRaises(IntegrityError):
+            User.objects.create_user(
+                username='duplicate',
+                email='base@example.com',
+                password='another-pass',
+            )
+
+    def test_default_role_is_customer(self):
+        self.assertTrue(self.user.is_customer())
+        self.assertEqual(self.user.role, UserRole.CUSTOMER)
+
+    def test_get_full_name_combines_first_and_last(self):
+        self.assertEqual(self.user.get_full_name(), 'Base User')
+
+    def test_get_full_name_falls_back_to_username(self):
+        self.user.first_name = ''
+        self.user.last_name = ''
+        self.user.save()
+        self.assertEqual(self.user.get_full_name(), self.user.username)
+
+    def test_is_owner_helper(self):
+        self.user.role = UserRole.OWNER
+        self.user.save()
+        self.assertTrue(self.user.is_owner())
+        self.assertFalse(self.user.is_customer())
+
+    def test_is_admin_true_for_admin_role(self):
+        self.user.role = UserRole.ADMIN
+        self.user.save()
+        self.assertTrue(self.user.is_admin())
+
+    def test_is_admin_true_for_superuser(self):
+        superuser = User.objects.create_superuser(
+            username='super',
+            email='super@example.com',
+            password='super-pass',
+        )
+        self.assertTrue(superuser.is_admin())
+
+    def test_string_representation_includes_role_display(self):
+        self.assertIn(self.user.get_role_display(), str(self.user))
+
+    def test_username_field_is_email_for_auth(self):
+        self.assertEqual(User.USERNAME_FIELD, 'email')
+
+    def test_role_changes_persist(self):
+        self.user.role = UserRole.OWNER
+        self.user.save(update_fields=['role'])
+        reloaded = User.objects.get(pk=self.user.pk)
+        self.assertEqual(reloaded.role, UserRole.OWNER)
+
+
+class UserProfileTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='profileuser',
+            email='profile@example.com',
+            password='profile-pass',
+            role=UserRole.OWNER,
+        )
+        self.profile = UserProfile.objects.create(user=self.user)
+        self.location = Location.objects.create(
+            country='Ukraine', city='Kyiv', address='Main 1'
+        )
+
+    def test_listing_count_only_counts_active_non_deleted(self):
+        Listing.objects.create(
+            owner=self.user,
+            title='Active listing',
+            description='Great place',
+            property_type=PropertyType.APARTMENT,
+            location=self.location,
+            is_hotel_apartment=False,
+            num_rooms=1,
+            num_bedrooms=1,
+            num_bathrooms=1,
+            max_guests=2,
+            area=Decimal('20.00'),
+            price=Decimal('30.00'),
+            cancellation_policy=CancellationPolicy.FLEXIBLE,
+        )
+        inactive = Listing.objects.create(
+            owner=self.user,
+            title='Inactive listing',
+            description='Closed',
+            property_type=PropertyType.APARTMENT,
+            location=self.location,
+            is_hotel_apartment=False,
+            num_rooms=1,
+            num_bedrooms=1,
+            num_bathrooms=1,
+            max_guests=2,
+            area=Decimal('25.00'),
+            price=Decimal('40.00'),
+            cancellation_policy=CancellationPolicy.MODERATE,
+            is_active=False,
+        )
+        inactive.soft_delete()
+
+        self.assertEqual(self.profile.listing_count, 1)
+
+    def test_rating_defaults_to_zero_when_no_reviews(self):
+        self.assertEqual(self.profile.rating, 0.0)
+
+    def test_string_representation_uses_user_display(self):
+        self.assertIn(self.user.get_role_display(), str(self.profile))
+
+    def test_phone_allows_blank_values(self):
+        self.profile.phone = ''
+        self.profile.save()
+        reloaded = self.user.profile
+        self.assertEqual(reloaded.phone, '')
+
+    def test_languages_default_value(self):
+        self.assertEqual(self.profile.languages, 'de')
+
+
+class RefreshTokenRecordTests(TestCase):
+    def test_revoke_marks_token_as_revoked(self):
+        user = User.objects.create_user(
+            username='tokenuser',
+            email='token@example.com',
+            password='token-pass',
+        )
+        record = RefreshTokenRecord.objects.create(
+            user=user,
+            jti='token-jti-1',
+            token='sample-token',
+        )
+
+        record.revoke()
+        record.refresh_from_db()
+        self.assertTrue(record.revoked)
