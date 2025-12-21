@@ -86,18 +86,19 @@ class SearchViewSet(viewsets.ViewSet):
         if filters.get('property_type'):
             listings = listings.filter(property_type=filters['property_type'])
 
-        # Зберегти в історію
-        if request.user.is_authenticated and query:
-            SearchHistory.objects.create(
-                user=request.user,
-                query=query,
-                filters={k: v for k, v in filters.items() if k != 'query'},
-                results_count=listings.count()
-            )
+        results_count = listings.count()
+
+        # Зберегти в історію кожен пошук (включаючи анонімних користувачів)
+        SearchHistory.objects.create(
+            user=request.user if request.user.is_authenticated else None,
+            query=query,
+            filters={k: v for k, v in filters.items() if k != 'query'},
+            results_count=results_count
+        )
 
         # Результат
         serializer = ListingListSerializer(listings, many=True, context={'request': request})
         return Response({
-            'count': listings.count(),
+            'count': results_count,
             'results': serializer.data
         })
