@@ -3,7 +3,8 @@ from datetime import timedelta
 
 from django.test import TestCase
 from django.utils import timezone
-from rest_framework.test import APIClient
+from rest_framework import status
+from rest_framework.test import APIClient, APITestCase
 
 from apps.users.models import User
 from apps.common.enums import UserRole, PropertyType, CancellationPolicy
@@ -112,3 +113,47 @@ class UserVisibilityTests(TestCase):
         results = self._get_results(response)
         returned_emails = [user['email'] for user in results]
         self.assertEqual(returned_emails, [self.other_customer.email])
+
+
+class UserAuthApiTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='apitester',
+            email='apitester@example.com',
+            password='strong-pass-123',
+            role=UserRole.CUSTOMER,
+        )
+
+    def test_obtain_token_with_valid_credentials(self):
+        response = self.client.post(
+            '/api/auth/token/',
+            {'email': 'apitester@example.com', 'password': 'strong-pass-123'},
+            format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', response.data)
+        self.assertIn('refresh', response.data)
+
+    def test_obtain_token_rejects_invalid_credentials(self):
+        response = self.client.post(
+            '/api/auth/token/',
+            {'email': 'apitester@example.com', 'password': 'wrong-pass'},
+            format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_access_protected_endpoint_with_token(self):
+        token_response = self.client.post(
+            '/api/auth/token/',
+            {'email': 'apitester@example.com', 'password': 'strong-pass-123'},
+            format='json'
+        )
+        access_token = token_response.data['access']
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access_token}')
+        response = self.client.get('/api/users/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data['results'] if 'results' in response.data else response.data
+        returned_emails = [user['email'] for user in results]
+        self.assertIn(self.user.email, returned_emails)
