@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -8,6 +9,9 @@ from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
 from apps.common.models import Location
+from django.test import SimpleTestCase
+from django.utils import timezone
+
 from apps.common.validators import (
     validate_booking_dates,
     validate_max_guests_per_room,
