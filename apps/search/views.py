@@ -101,6 +101,12 @@ class SearchViewSet(viewsets.ViewSet):
                 filters=filters_data,
                 results_count=results_count,
             )
+        SearchHistory.objects.create(
+            user=request.user if request.user.is_authenticated else None,
+            query=query,
+            filters={k: v for k, v in filters.items() if k != 'query'},
+            results_count=results_count
+        )
 
         # Результат
         serializer = ListingListSerializer(listings, many=True, context={'request': request})
