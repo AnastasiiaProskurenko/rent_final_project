@@ -89,6 +89,18 @@ class SearchViewSet(viewsets.ViewSet):
         results_count = listings.count()
 
         # Зберегти в історію кожен пошук (включаючи анонімних користувачів)
+        filters_data = {
+            k: v for k, v in filters.items()
+            if k != 'query' and v not in (None, '', [])
+        }
+
+        if query or filters_data:
+            SearchHistory.objects.create(
+                user=request.user if request.user.is_authenticated else None,
+                query=query,
+                filters=filters_data,
+                results_count=results_count,
+            )
         SearchHistory.objects.create(
             user=request.user if request.user.is_authenticated else None,
             query=query,
