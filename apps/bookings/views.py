@@ -421,7 +421,7 @@ class BookingViewSet(viewsets.ModelViewSet):
 
     @action(
         detail=True,
-        methods=['patch', 'post'],
+        methods=['patch'],
         permission_classes=[permissions.IsAuthenticated, IsListingOwnerOrAdmin]
     )
     def change_status(self, request, pk=None):
