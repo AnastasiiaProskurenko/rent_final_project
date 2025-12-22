@@ -87,3 +87,58 @@ class ListingVisibilityTests(TestCase):
         self.assertEqual(history_entry.query, '')
         self.assertEqual(history_entry.filters, {'min_price': '70'})
         self.assertEqual(history_entry.results_count, len(self._get_results(response)))
+
+
+class ListingCreationPermissionTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.owner = User.objects.create_user(
+            username='owner',
+            email='owner@example.com',
+            password='password123',
+            role=UserRole.OWNER,
+        )
+        self.customer = User.objects.create_user(
+            username='customer',
+            email='customer@example.com',
+            password='password123',
+            role=UserRole.CUSTOMER,
+        )
+        self.location = Location.objects.create(
+            country='Ukraine',
+            city='Kyiv',
+            address='Owner street 1',
+        )
+
+    def _payload(self):
+        return {
+            'title': 'New listing',
+            'description': 'Nice place',
+            'property_type': PropertyType.APARTMENT,
+            'location_id': self.location.id,
+            'is_hotel_apartment': False,
+            'num_rooms': 1,
+            'num_bedrooms': 1,
+            'num_bathrooms': 1,
+            'max_guests': 2,
+            'area': '30.00',
+            'price': '100.00',
+            'cancellation_policy': CancellationPolicy.FLEXIBLE,
+        }
+
+    def test_owner_can_create_listing(self):
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.post('/api/listings/', self._payload(), format='json')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['owner'], self.owner.id)
+        self.assertEqual(Listing.objects.count(), 1)
+
+    def test_customer_cannot_create_listing(self):
+        self.client.force_authenticate(self.customer)
+
+        response = self.client.post('/api/listings/', self._payload(), format='json')
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(Listing.objects.count(), 0)

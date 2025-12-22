@@ -15,7 +15,7 @@ from .serializers import (
     PublicListingDetailSerializer,
 )
 from .filters import ListingFilter
-from .permissions import IsOwnerOrReadOnly
+from .permissions import IsOwnerOrReadOnly, IsOwnerToCreate
 
 
 class ListingViewSet(viewsets.ModelViewSet):
@@ -31,7 +31,11 @@ class ListingViewSet(viewsets.ModelViewSet):
     """
 
     queryset = Listing.objects.select_related('location', 'owner').all()
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
+    permission_classes = [
+        permissions.IsAuthenticatedOrReadOnly,
+        IsOwnerToCreate,
+        IsOwnerOrReadOnly,
+    ]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ListingFilter
     search_fields = ['title', 'description', 'location__city', 'location__address']

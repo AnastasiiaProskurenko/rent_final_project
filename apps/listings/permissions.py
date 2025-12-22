@@ -42,7 +42,8 @@ class IsOwnerToCreate(permissions.BasePermission):
         # Створення тільки для Owners та Admins
         if request.method == 'POST':
             return request.user.is_authenticated and (
-                    request.user.is_owner() or request.user.is_admin()
+                request.user.is_owner() or request.user.is_admin()
             )
 
-        return True
+        # Інші небезпечні методи (PUT/PATCH/DELETE) вимагають автентифікації
+        return request.user.is_authenticated
