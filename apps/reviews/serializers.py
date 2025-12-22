@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 
 from .models import Review, ListingRating, OwnerRating
+from apps.bookings.models import Booking
 from apps.common.constants import (
     MIN_RATING,
     MAX_RATING,
@@ -43,7 +44,19 @@ class ReviewSerializer(serializers.ModelSerializer):
     has_owner_response = serializers.BooleanField(read_only=True)
 
     # Write-only поля
-    booking_id = serializers.IntegerField(write_only=True, required=True)
+    booking_id = serializers.PrimaryKeyRelatedField(
+        source='booking',
+        queryset=Booking.objects.none(),
+        write_only=True,
+        required=True,
+        label='Booking ID'
+    )
+
+    rating = serializers.ChoiceField(
+        choices=[(i, i) for i in range(MIN_RATING, MAX_RATING + 1)],
+        allow_null=True,
+        required=False
+    )
 
     class Meta:
         model = Review
@@ -79,6 +92,7 @@ class ReviewSerializer(serializers.ModelSerializer):
             'id',
             'listing',
             'reviewer',
+            'owner_response',
             'owner_response_at',
             'has_owner_response',
             'reviewer_name',
@@ -87,6 +101,12 @@ class ReviewSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get('request')
+        if request and request.user and request.user.is_authenticated:
+            self.fields['booking_id'].queryset = Booking.objects.filter(customer=request.user)
 
     def validate_rating(self, value):
         """Валідація рейтингу"""
@@ -118,6 +138,13 @@ class ReviewSerializer(serializers.ModelSerializer):
         """Загальна валідація"""
         rating = attrs.get('rating')
         comment = attrs.get('comment', '').strip()
+        booking = attrs.get('booking')
+        request = self.context.get('request')
+
+        if request and request.user.is_authenticated and request.user.is_owner():
+            raise serializers.ValidationError({
+                'booking_id': 'Only customers can create reviews'
+            })
 
         # Має бути rating АБО comment
         if not rating and not comment:
@@ -125,18 +152,27 @@ class ReviewSerializer(serializers.ModelSerializer):
                 'Either rating or comment must be provided'
             )
 
+        # Переконатися, що відгук може залишити лише клієнт
+        if booking is not None:
+            if not request or not request.user.is_authenticated:
+                raise serializers.ValidationError({
+                    'booking_id': 'Authentication is required to create a review'
+                })
+
+            if booking.customer != request.user:
+                raise serializers.ValidationError({
+                    'booking_id': 'Only the booking customer can leave a review'
+                })
+
         return attrs
 
     def create(self, validated_data):
         """Створення відгуку"""
         # Отримати booking
-        booking_id = validated_data.pop('booking_id')
+        booking = validated_data.pop('booking', None)
 
-        from apps.bookings.models import Booking
-        try:
-            booking = Booking.objects.get(id=booking_id)
-        except Booking.DoesNotExist:
-            raise serializers.ValidationError({'booking_id': 'Booking not found'})
+        if booking is None:
+            raise serializers.ValidationError({'booking_id': 'Booking is required to create a review'})
 
         # Автоматично встановити поля
         validated_data['booking'] = booking
