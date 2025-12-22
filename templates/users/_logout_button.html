@@ -1,0 +1,40 @@
+{% if user.is_authenticated %}
+<div class="logout-badge">
+    <a href="/logout/">Вийти</a>
+</div>
+<style>
+.logout-badge {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid #36ffb8;
+    color: #36ffb8;
+    padding: 10px 14px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.logout-badge a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.logout-badge:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+}
+
+@media (max-width: 600px) {
+    .logout-badge {
+        top: 12px;
+        right: 12px;
+        padding: 8px 12px;
+    }
+}
+</style>
+{% endif %}
