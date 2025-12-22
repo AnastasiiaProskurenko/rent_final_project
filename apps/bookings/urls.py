@@ -44,6 +44,8 @@ POST    /api/bookings/{id}/approve/             - Підтвердити (owner/
 POST    /api/bookings/{id}/reject/              - Відхилити (owner/admin)
 POST    /api/bookings/{id}/cancel/              - Скасувати (customer/owner/admin)
 POST    /api/bookings/{id}/complete/            - Завершити (owner/admin)
+PATCH   /api/bookings/{id}/change_status/       - Змінити статус (owner/admin)
+POST    /api/bookings/{id}/change_status/       - Змінити статус (owner/admin)
 
 
 СТАТИСТИКА ТА ДОДАТКОВО:
