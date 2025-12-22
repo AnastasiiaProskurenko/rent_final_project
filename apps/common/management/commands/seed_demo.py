@@ -1,7 +1,6 @@
-import base64
-import datetime
+# apps/common/management/commands/seed_demo_de.py
 import random
-import string
+import datetime
 from decimal import Decimal
 
 from django.apps import apps
@@ -13,50 +12,47 @@ from django.utils import timezone
 
 DEMO_DOMAIN = "demo.local"
 
-
-# 1x1 PNG (валидное изображение), чтобы пройти ImageField у ListingPhoto
-_PNG_1x1 = base64.b64decode(
-    b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
+# 1x1 PNG (щоб Photo ImageField завжди зберігався)
+_PNG_1x1 = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc`\x00\x00"
+    b"\x00\x02\x00\x01\xe2!\xbc3\x00\x00\x00\x00IEND\xaeB`\x82"
 )
 
 
-def randstr(n=8):
-    return "".join(random.choices(string.ascii_lowercase + string.digits, k=n))
+def randstr(n: int) -> str:
+    alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+    return "".join(random.choice(alphabet) for _ in range(n))
 
 
 def pick(seq):
-    return random.choice(list(seq))
+    return random.choice(seq)
 
 
 def field_names(model):
-    names = set()
-    for f in model._meta.get_fields():
-        if hasattr(f, "name"):
-            names.add(f.name)
-        if hasattr(f, "attname"):
-            names.add(f.attname)
-    return names
+    return {f.name for f in model._meta.get_fields()}
 
 
 def is_required_field(f):
-    if not getattr(f, "concrete", False):
+    # ManyToMany / reverse rel нас не цікавлять
+    if not hasattr(f, "null"):
         return False
+    # Auto поля
     if getattr(f, "auto_created", False):
         return False
+    # PK / id
     if getattr(f, "primary_key", False):
         return False
-    if getattr(f, "many_to_many", False):
+    # editable=False часто заповнюється автоматично
+    if getattr(f, "editable", True) is False:
         return False
-    if getattr(f, "one_to_many", False):
-        return False
-    if getattr(f, "null", True):
-        return False
-    if f.has_default():
-        return False
-    internal = f.get_internal_type()
-    if internal in ("AutoField", "BigAutoField", "SmallAutoField"):
-        return False
-    return True
+    # null=False і blank=False => required (для form/serializer логіки)
+    if getattr(f, "null", True) is False and getattr(f, "blank", True) is False:
+        # але якщо default існує — не чіпаємо
+        if f.default is not None and f.default is not BaseCommand:
+            return False
+        return True
+    return False
 
 
 def coerce_default_for_field(f):
@@ -102,18 +98,25 @@ def coerce_default_for_field(f):
             return f"Demo title {randstr(6)}"
         if f.name == "name":
             return f"Demo {randstr(6)}"
+
+        # ✅ ТІЛЬКИ НІМЕЧЧИНА
         if f.name == "city":
-            return pick(["Kyiv", "Lviv", "Odesa", "Kharkiv", "Dnipro", "Warsaw", "Krakow", "Berlin"])
+            return pick(["Berlin", "Hamburg", "Munich", "Cologne", "Frankfurt am Main", "Stuttgart", "Düsseldorf"])
         if f.name == "country":
-            return pick(["Ukraine", "Poland", "Germany"])
+            return "Germany"
         if f.name in ("address", "normalized_address"):
-            return f"{random.randint(1, 500)} {pick(['Shevchenka', 'Khreshchatyk', 'Bandery', 'Central'])} St {randstr(4)}"
+            plz = f"{random.randint(10115, 99998):05d}"
+            street = pick(["Hauptstraße", "Bahnhofstraße", "Goethestraße", "Schillerstraße", "Mozartstraße", "Poststraße"])
+            house = random.randint(1, 250)
+            return f"{street} {house}, {plz}"
+
         if f.name == "description":
             return "Demo description."
         if f.name == "status":
             return "pending"
         if f.name == "transaction_id":
             return f"tx_{randstr(16)}"
+
         return f"demo_{randstr(12)}"
 
     return None
@@ -137,7 +140,7 @@ def safe_set(obj, name, value):
 
 
 class Command(BaseCommand):
-    help = "Seed demo data for the project (locations, amenities, users, listings, bookings, payments, reviews)."
+    help = "Seed demo data (Germany only): locations (DE), amenities, users+profiles, listings, bookings, payments, reviews."
 
     def add_arguments(self, parser):
         parser.add_argument("--clean", action="store_true", help="Delete existing demo data before seeding")
@@ -153,6 +156,7 @@ class Command(BaseCommand):
 
         # Models
         User = apps.get_model("users", "User")
+        UserProfile = apps.get_model("users", "UserProfile")
         Location = apps.get_model("common", "Location")
         Amenity = apps.get_model("listings", "Amenity")
         Listing = apps.get_model("listings", "Listing")
@@ -162,75 +166,62 @@ class Command(BaseCommand):
         Payment = apps.get_model("payments", "Payment")
         Review = apps.get_model("reviews", "Review")
 
-        from apps.common.enums import BookingStatus, PaymentStatus, CancellationPolicy, PropertyType
+        from apps.common.enums import BookingStatus, PaymentStatus, CancellationPolicy, PropertyType, UserRole
         from apps.common.constants import PLATFORM_FEE_PERCENTAGE, MIN_BOOKING_DURATION_DAYS, MAX_BOOKING_DURATION_DAYS
 
         # ---------- CLEAN ----------
         if opts["clean"]:
-            self.stdout.write("Cleaning demo data...")
+            self.stdout.write("Cleaning demo data.")
 
-            # order: children -> parents
             Review.objects.all().delete()
-            self.stdout.write("Deleted reviews")
-
             Payment.objects.all().delete()
-            self.stdout.write("Deleted payments")
-
             Booking.objects.all().delete()
-            self.stdout.write("Deleted bookings")
-
             ListingPhoto.objects.all().delete()
-            self.stdout.write("Deleted listing photos")
-
             ListingPrice.objects.all().delete()
-            self.stdout.write("Deleted listing prices")
-
             Listing.objects.all().delete()
-            self.stdout.write("Deleted listings")
-
             Amenity.objects.all().delete()
-            self.stdout.write("Deleted amenities")
-
             Location.objects.all().delete()
-            self.stdout.write("Deleted locations")
-
+            UserProfile.objects.all().delete()
             User.objects.filter(email__endswith=f"@{DEMO_DOMAIN}").delete()
-            self.stdout.write("Deleted demo users")
 
-        # ---------- LOCATIONS ----------
-        self.stdout.write("Creating locations...")
+            self.stdout.write("Clean completed.")
 
-        # ВАЖНО: у вас UNIQUE(country, city, normalized_address)
-        # normalized_address формируется из address, поэтому address должен быть уникальным в рамках city+country.
-        cities = [
-            ("Kyiv", "Ukraine"),
-            ("Lviv", "Ukraine"),
-            ("Odesa", "Ukraine"),
-            ("Kharkiv", "Ukraine"),
-            ("Dnipro", "Ukraine"),
-            ("Warsaw", "Poland"),
-            ("Krakow", "Poland"),
-            ("Berlin", "Germany"),
+        # ---------- LOCATIONS (GERMANY) ----------
+        self.stdout.write("Creating DE locations.")
+
+        de_cities = [
+            "Berlin", "Hamburg", "Munich", "Cologne", "Frankfurt am Main", "Stuttgart",
+            "Düsseldorf", "Dortmund", "Essen", "Leipzig", "Bremen", "Dresden", "Hanover", "Nuremberg",
+        ]
+
+        german_streets = [
+            "Hauptstraße", "Bahnhofstraße", "Gartenstraße", "Schulstraße", "Ringstraße",
+            "Dorfstraße", "Bergstraße", "Lindenstraße", "Berliner Straße", "Goethestraße",
+            "Schillerstraße", "Mozartstraße", "Poststraße", "Kirchstraße", "Industriestraße",
         ]
 
         locations = []
-        used_triplets = set()  # (country, city, normalized_key_like_address)
+        used_triplets = set()  # (country, city, normalized_address)
 
-        # делаем минимум opts["listings"] локаций, чтобы у каждого listing была своя адреса (и не ловить address-валидации listings)
         num_locations = max(opts["listings"], 30)
 
-        for i in range(num_locations):
-            city, country = pick(cities)
-            # уникальная адреса
-            address = f"{random.randint(1, 999)} {pick(['Shevchenka', 'Khreshchatyk', 'Bandery', 'Central', 'Green', 'River'])} St, apt {i+1}-{randstr(3)}"
+        for _ in range(num_locations):
+            city = pick(de_cities)
+            country = "Germany"
+
+            plz = f"{random.randint(10115, 99998):05d}"
+            street = pick(german_streets)
+            house = random.randint(1, 250)
+
+            address = f"{street} {house}, {plz}"
             key = (country.lower(), city.lower(), address.lower())
             while key in used_triplets:
-                address = f"{random.randint(1, 999)} {pick(['Shevchenka', 'Khreshchatyk', 'Bandery', 'Central', 'Green', 'River'])} St, apt {i+1}-{randstr(4)}"
+                house = random.randint(1, 250)
+                address = f"{street} {house}, {plz}-{randstr(2)}"
                 key = (country.lower(), city.lower(), address.lower())
             used_triplets.add(key)
 
             loc = Location()
-            # обычно есть country/city/address, а normalized_address модель сама посчитает в save()
             if "country" in field_names(Location):
                 safe_set(loc, "country", country)
             if "city" in field_names(Location):
@@ -238,26 +229,25 @@ class Command(BaseCommand):
             if "address" in field_names(Location):
                 safe_set(loc, "address", address)
 
-            # на случай, если normalized_address обязательное и НЕ считается автоматически
             if "normalized_address" in field_names(Location) and not getattr(loc, "normalized_address", None):
                 safe_set(loc, "normalized_address", address.lower())
 
-            # координаты если есть
+            # Координати в межах Німеччини (приблизно)
             if "latitude" in field_names(Location):
-                safe_set(loc, "latitude", Decimal(str(round(random.uniform(46, 54), 6))))
+                safe_set(loc, "latitude", Decimal(str(round(random.uniform(47.2, 54.9), 6))))
             if "longitude" in field_names(Location):
-                safe_set(loc, "longitude", Decimal(str(round(random.uniform(22, 32), 6))))
+                safe_set(loc, "longitude", Decimal(str(round(random.uniform(5.9, 15.1), 6))))
             if "lat" in field_names(Location):
-                safe_set(loc, "lat", Decimal(str(round(random.uniform(46, 54), 6))))
+                safe_set(loc, "lat", Decimal(str(round(random.uniform(47.2, 54.9), 6))))
             if "lng" in field_names(Location):
-                safe_set(loc, "lng", Decimal(str(round(random.uniform(22, 32), 6))))
+                safe_set(loc, "lng", Decimal(str(round(random.uniform(5.9, 15.1), 6))))
 
             fill_required_fields(loc)
             loc.save()
             locations.append(loc)
 
         # ---------- AMENITIES ----------
-        self.stdout.write("Creating amenities...")
+        self.stdout.write("Creating amenities.")
         amenity_names = [
             "Wi-Fi", "Kitchen", "Air conditioning", "Washer", "Dryer",
             "Heating", "Free parking", "TV", "Elevator", "Balcony",
@@ -276,8 +266,45 @@ class Command(BaseCommand):
             a.save()
             amenities.append(a)
 
-        # ---------- USERS ----------
-        def create_demo_user(prefix: str, i: int):
+        # ---------- USERS + PROFILES ----------
+        def ensure_profile(user, role_value: str):
+            """
+            Заповнює UserProfile згідно вашої моделі:
+            phone, avatar, biography, languages
+            """
+            profile, _ = UserProfile.objects.get_or_create(user=user)
+
+            # phone (DE)
+            if not profile.phone:
+                profile.phone = f"+49{random.randint(1500000000, 1799999999)}"
+
+            # languages + biography
+            if role_value == UserRole.OWNER:
+                profile.languages = "de,en"
+                if not profile.biography:
+                    profile.biography = (
+                        "Property owner in Germany. Experienced host offering clean, well-located apartments."
+                    )
+            else:
+                profile.languages = "de"
+                if not profile.biography:
+                    profile.biography = (
+                        "Guest user. Interested in short-term and long-term rentals in Germany."
+                    )
+
+            # avatar
+            if not profile.avatar:
+                profile.avatar.save(
+                    f"avatar_{user.id}.png",
+                    ContentFile(_PNG_1x1),
+                    save=False
+                )
+
+            fill_required_fields(profile)
+            profile.save()
+            return profile
+
+        def create_demo_user(prefix: str, i: int, role_value: str):
             email = f"{prefix}{i}@{DEMO_DOMAIN}"
             username = f"{prefix}{i}"
 
@@ -288,75 +315,80 @@ class Command(BaseCommand):
                 kwargs["username"] = username
 
             manager = User.objects
-            user = None
-
             if hasattr(manager, "create_user"):
-                # у вас create_user требует username (вы это ловили ошибкой)
                 try:
                     user = manager.create_user(password="demo12345", **kwargs)
                 except TypeError:
-                    # если требует строго (username,email,password)
-                    user = manager.create_user(username=kwargs.get("username", username), email=kwargs.get("email", email), password="demo12345")
+                    user = manager.create_user(
+                        username=kwargs.get("username", username),
+                        email=kwargs.get("email", email),
+                        password="demo12345"
+                    )
             else:
                 user = manager.create(**kwargs)
                 if hasattr(user, "set_password"):
                     user.set_password("demo12345")
                     user.save()
 
-            # is_active / is_staff если есть
             if "is_active" in field_names(User):
                 safe_set(user, "is_active", True)
             if "is_staff" in field_names(User):
                 safe_set(user, "is_staff", False)
 
-            # флаги is_owner/is_customer в вашей модели НЕТ (вы это ловили ошибкой)
-            # поэтому не ставим их вообще.
-
             if "first_name" in field_names(User):
-                safe_set(user, "first_name", pick(["Alex", "Maria", "Ihor", "Olena", "Andrii", "Kateryna"]))
+                safe_set(user, "first_name", pick(["Max", "Marie", "Leon", "Sophie", "Paul", "Lena"]))
             if "last_name" in field_names(User):
-                safe_set(user, "last_name", pick(["Shevchenko", "Koval", "Bondarenko", "Tkachenko", "Melnyk"]))
+                safe_set(user, "last_name", pick(["Müller", "Schmidt", "Schneider", "Fischer", "Weber", "Meyer"]))
+
+            # role + verified (є у вашій моделі User) :contentReference[oaicite:2]{index=2}
+            if "role" in field_names(User):
+                safe_set(user, "role", role_value)
+            if "is_verified" in field_names(User):
+                safe_set(user, "is_verified", random.choice([True, False]))
 
             fill_required_fields(user)
             user.save()
+
+            ensure_profile(user, role_value)
             return user
 
-        self.stdout.write("Creating owners...")
-        owners = [create_demo_user("owner", i + 1) for i in range(opts["owners"])]
+        self.stdout.write("Creating owners.")
+        owners = [create_demo_user("owner", i + 1, UserRole.OWNER) for i in range(opts["owners"])]
 
-        self.stdout.write("Creating customers...")
-        customers = [create_demo_user("customer", i + 1) for i in range(opts["customers"])]
+        self.stdout.write("Creating customers.")
+        customers = [create_demo_user("customer", i + 1, UserRole.CUSTOMER) for i in range(opts["customers"])]
 
         # ---------- LISTINGS ----------
-        self.stdout.write("Creating listings (with photos, amenities, prices)...")
+        self.stdout.write("Creating listings (with photos, amenities, prices).")
 
         listing_titles = [
             "Central Apartment", "Cozy Studio", "Modern Loft", "Old Town Flat", "Riverside House",
             "Business Suite", "Family Home", "Minimalist Space", "Panorama View", "Quiet Retreat",
         ]
 
-        property_type_values = [c[0] for c in PropertyType.choices]  # e.g. ("apartment","house",...)
+        property_type_values = [c[0] for c in PropertyType.choices]
         cancellation_values = [c[0] for c in CancellationPolicy.choices]
 
         listing_objects = []
         for i in range(opts["listings"]):
             owner = pick(owners)
-            loc = locations[i % len(locations)]  # гарантировано разные адреса
+            loc = locations[i % len(locations)]
 
             num_rooms = random.randint(1, 6)
             num_bedrooms = random.randint(0, min(4, num_rooms))
             num_bathrooms = random.randint(1, 3)
             max_guests = random.randint(1, 8)
+
             area = Decimal(str(random.randint(18, 140))).quantize(Decimal("0.01"))
-            price = Decimal(str(random.randint(25, 250))).quantize(Decimal("0.01"))
-            cleaning_fee = Decimal(str(random.randint(0, 60))).quantize(Decimal("0.01"))
+            price = Decimal(str(random.randint(35, 320))).quantize(Decimal("0.01"))
+            cleaning_fee = Decimal(str(random.randint(0, 70))).quantize(Decimal("0.01"))
 
             obj = Listing(
                 owner=owner,
                 title=f"{pick(listing_titles)} in {loc.city} #{i+1}",
-                description="Demo listing with realistic amenities and pricing.",
+                description="Demo listing (Germany) with realistic amenities and pricing.",
                 location=loc,
-                is_hotel_apartment=False,  # проще: уникальные адреса => не нужно отельное правило
+                is_hotel_apartment=False,
                 property_type=pick(property_type_values),
                 num_rooms=num_rooms,
                 num_bedrooms=num_bedrooms,
@@ -374,11 +406,9 @@ class Command(BaseCommand):
             obj.save()
             listing_objects.append(obj)
 
-            # M2M amenities
             if hasattr(obj, "amenities"):
                 obj.amenities.set(random.sample(amenities, k=random.randint(3, min(7, len(amenities)))))
 
-            # ListingPrice: amount == listing.price (и уникален per listing)
             ListingPrice.objects.get_or_create(listing=obj, amount=obj.price)
 
             # Photos: ImageField обязателен -> кладем 1x1 png
@@ -389,7 +419,6 @@ class Command(BaseCommand):
                     ph.caption = f"Demo photo {p+1}"
                 if "order" in field_names(ListingPhoto):
                     ph.order = p
-                # image обязательно
                 ph.image.save(
                     f"demo_{obj.id}_{p}.png",
                     ContentFile(_PNG_1x1),
@@ -399,11 +428,10 @@ class Command(BaseCommand):
                 ph.save()
 
         # ---------- BOOKINGS ----------
-        self.stdout.write("Creating bookings...")
+        self.stdout.write("Creating bookings.")
 
         today = timezone.now().date()
 
-        # Распределяем статусы
         total = opts["bookings"]
         completed_count = max(1, total // 5)
         cancelled_count = max(1, total // 5)
@@ -411,19 +439,16 @@ class Command(BaseCommand):
 
         # 1) COMPLETED (прошлые даты) -> bulk_create, чтобы обойти запрет на прошлое
         completed_bookings = []
-        for i in range(completed_count):
+        for _ in range(completed_count):
             listing = pick(listing_objects)
             customer = pick(customers)
 
             nights = random.randint(int(MIN_BOOKING_DURATION_DAYS), min(int(MAX_BOOKING_DURATION_DAYS), 7))
-            # делаем завершение в прошлом
             check_out = today - datetime.timedelta(days=random.randint(1, 25))
             check_in = check_out - datetime.timedelta(days=nights)
 
-            # ListingPrice на момент брони
             price_entry, _ = ListingPrice.objects.get_or_create(listing=listing, amount=listing.price)
 
-            # считаем цены точно по вашей логике (аналог Booking._calculate_prices)
             cents = Decimal("0.01")
             base_price = (price_entry.amount * nights).quantize(cents)
             cleaning_fee_val = (listing.cleaning_fee or Decimal("0")).quantize(cents)
@@ -449,90 +474,64 @@ class Command(BaseCommand):
                 cancellation_policy=listing.cancellation_policy,
                 special_requests="",
             )
+            fill_required_fields(b)
             completed_bookings.append(b)
 
         Booking.objects.bulk_create(completed_bookings)
 
-        # вытаскиваем их обратно с id
-        completed_bookings_db = list(
-            Booking.objects.filter(status=BookingStatus.COMPLETED).order_by("-id")[:completed_count]
-        )
+        # 2) ACTIVE / CANCELLED (будущие даты, обычный save пройдет вашу валидацию)
+        all_bookings_db = list(Booking.objects.all())
 
-        # 2) CANCELLED (будущие даты) -> обычный save (валидируется)
-        cancelled_bookings_db = []
-        # чтобы не ловить overlap — двигаем даты последовательно по листингам
-        next_start_by_listing = {l.id: today + datetime.timedelta(days=2) for l in listing_objects}
-
-        for _ in range(cancelled_count):
+        bookings_created = 0
+        for i in range(active_count + cancelled_count):
             listing = pick(listing_objects)
             customer = pick(customers)
 
-            start = next_start_by_listing[listing.id]
             nights = random.randint(int(MIN_BOOKING_DURATION_DAYS), min(int(MAX_BOOKING_DURATION_DAYS), 7))
-            end = start + datetime.timedelta(days=nights)
-            next_start_by_listing[listing.id] = end + datetime.timedelta(days=random.randint(1, 3))
+            check_in = today + datetime.timedelta(days=random.randint(2, 25))
+            check_out = check_in + datetime.timedelta(days=nights)
 
             b = Booking(
                 customer=customer,
                 listing=listing,
                 location=listing.location,
-                check_in=start,
-                check_out=end,
+                check_in=check_in,
+                check_out=check_out,
                 num_guests=min(listing.max_guests, random.randint(1, 6)),
-                status=BookingStatus.CANCELLED,
-                payment_status=pick([PaymentStatus.PENDING, PaymentStatus.FAILED, PaymentStatus.REFUNDED]),
                 cancellation_policy=listing.cancellation_policy,
-                cancellation_reason="Demo cancellation",
                 special_requests="",
             )
-            b.save()  # full_clean внутри модели
-            if hasattr(b, "cancelled_at"):
-                b.cancelled_at = timezone.now() - datetime.timedelta(days=random.randint(0, 7))
+
+            if i < cancelled_count:
+                b.status = BookingStatus.CANCELLED
+                b.payment_status = PaymentStatus.FAILED
+                if hasattr(b, "cancelled_at"):
+                    b.cancelled_at = timezone.now() - datetime.timedelta(days=random.randint(0, 10))
+                if hasattr(b, "cancellation_reason"):
+                    b.cancellation_reason = "Demo cancellation"
+            else:
+                b.status = pick([BookingStatus.PENDING, BookingStatus.CONFIRMED])
+                b.payment_status = pick([PaymentStatus.PENDING, PaymentStatus.COMPLETED])
+
+            try:
+                fill_required_fields(b)
                 b.save()
-            cancelled_bookings_db.append(b)
+                bookings_created += 1
+            except Exception:
+                continue
 
-        # 3) ACTIVE (pending/confirmed/in_progress) -> обычный save (валидируется)
-        active_statuses = [BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.IN_PROGRESS]
-        active_bookings_db = []
-        for _ in range(active_count):
-            listing = pick(listing_objects)
-            customer = pick(customers)
-
-            start = next_start_by_listing[listing.id]
-            nights = random.randint(int(MIN_BOOKING_DURATION_DAYS), min(int(MAX_BOOKING_DURATION_DAYS), 10))
-            end = start + datetime.timedelta(days=nights)
-            next_start_by_listing[listing.id] = end + datetime.timedelta(days=random.randint(1, 2))
-
-            status = pick(active_statuses)
-            pay_status = pick([PaymentStatus.PENDING, PaymentStatus.COMPLETED])
-
-            b = Booking(
-                customer=customer,
-                listing=listing,
-                location=listing.location,
-                check_in=start,
-                check_out=end,
-                num_guests=min(listing.max_guests, random.randint(1, 6)),
-                status=status,
-                payment_status=pay_status,
-                cancellation_policy=listing.cancellation_policy,
-                special_requests=pick(["", "", "Late check-in please", "Need quiet room", "Baby bed if possible"]),
-            )
-            b.save()
-            active_bookings_db.append(b)
-
-        all_bookings_db = completed_bookings_db + cancelled_bookings_db + active_bookings_db
+        all_bookings_db = list(Booking.objects.all())
+        completed_bookings_db = list(Booking.objects.filter(status=BookingStatus.COMPLETED))
 
         # ---------- PAYMENTS ----------
-        # Payment.clean требует amount == booking.total_price -> ставим ровно booking.total_price
-        payments_created = 0
+        self.stdout.write("Creating payments.")
         for b in all_bookings_db:
-            # OneToOne: если уже есть — пропускаем
             if hasattr(b, "payment"):
                 continue
 
             status = b.payment_status
-            if status not in [c[0] for c in PaymentStatus.choices]:
+            status_values = [c[0] for c in PaymentStatus.choices]
+            if status not in status_values:
                 status = PaymentStatus.PENDING
 
             p = Payment(
@@ -544,19 +543,17 @@ class Command(BaseCommand):
                 payment_date=timezone.now() - datetime.timedelta(days=random.randint(0, 30)) if status == PaymentStatus.COMPLETED else None,
                 notes="Demo payment",
             )
-            p.save()
-            payments_created += 1
+            try:
+                fill_required_fields(p)
+                p.save()
+            except Exception:
+                continue
 
         # ---------- REVIEWS ----------
-        # validate_review_after_stay(booking) требует today >= booking.check_out
-        # Поэтому создаем отзывы только для COMPLETED (у них check_out в прошлом).
-        self.stdout.write("Creating reviews...")
-
+        self.stdout.write("Creating reviews.")
         reviews_created = 0
         review_fields = field_names(Review)
 
-        # некоторые проекты делают OneToOne(booking) или FK(booking)
-        # создадим по 1 review на completed booking
         for b in completed_bookings_db:
             r = Review()
 
@@ -584,26 +581,24 @@ class Command(BaseCommand):
             fill_required_fields(r)
 
             try:
-                r.save()  # тут отработает validate_review_after_stay, и он пройдет
+                r.save()
                 reviews_created += 1
             except Exception:
-                # если у Review есть дополнительные строгие правила — просто пропустим
                 continue
 
         # ---------- DONE ----------
         self.stdout.write(self.style.SUCCESS(
-            "Seed completed: "
+            "Seed (DE) completed: "
             f"locations={Location.objects.count()}, "
             f"amenities={Amenity.objects.count()}, "
             f"owners={len(owners)}, "
             f"customers={len(customers)}, "
+            f"profiles={UserProfile.objects.count()}, "
             f"listings={Listing.objects.count()}, "
             f"bookings={Booking.objects.count()}, "
             f"payments={Payment.objects.count()}, "
-            f"reviews={Review.objects.count()}"
+            f"reviews={reviews_created}"
         ))
-
         self.stdout.write(self.style.WARNING(
-            "Demo credentials: password demo12345 (owner1@demo.local / customer1@demo.local / ...)"
+            "Demo credentials: password demo12345 (owner1@demo.local / customer1@demo.local / etc.)"
         ))
-        self.stdout.write(f"Reviews created: {reviews_created}")

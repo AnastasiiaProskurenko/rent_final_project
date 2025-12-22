@@ -150,8 +150,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         При створенні автоматично встановлюємо customer та created_by
         """
         serializer.save(
-            customer=self.request.user,
-            created_by=self.request.user
+            customer=self.request.user
         )
 
     def perform_destroy(self, instance):

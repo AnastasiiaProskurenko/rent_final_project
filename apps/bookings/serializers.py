@@ -149,21 +149,16 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
-        """Створення бронювання з розрахунком ціни"""
         listing = validated_data['listing']
         check_in = validated_data['check_in']
         check_out = validated_data['check_out']
 
-        # Розрахунок кількості днів та загальної ціни
         num_days = (check_out - check_in).days
         total_price = listing.price * num_days
 
-        # Створюємо бронювання
         booking = Booking.objects.create(
-            customer=self.context['request'].user,
-            location=listing.location,
             total_price=total_price,
-            **validated_data
+            **validated_data  # location вже тут
         )
 
         return booking

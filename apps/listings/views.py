@@ -1,5 +1,6 @@
 from rest_framework import viewsets, permissions, status, filters
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 
@@ -95,6 +96,27 @@ class ListingViewSet(viewsets.ModelViewSet):
         listing.is_active = False
         listing.save()
         return Response({'status': 'deactivated'})
+
+    @action(
+        detail=False,
+        methods=['get'],
+        permission_classes=[IsAuthenticated],
+        url_path='my_listings'
+    )
+    def my_listings(self, request):
+        """
+        ✅ Повертає оголошення поточного користувача
+        GET /api/listings/my_listings/
+        """
+        queryset = self.get_queryset().filter(owner=request.user)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
 
 class ListingPhotoViewSet(viewsets.ModelViewSet):
