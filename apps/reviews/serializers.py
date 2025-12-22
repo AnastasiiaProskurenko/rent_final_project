@@ -79,6 +79,7 @@ class ReviewSerializer(serializers.ModelSerializer):
             'id',
             'listing',
             'reviewer',
+            'owner_response',
             'owner_response_at',
             'has_owner_response',
             'reviewer_name',
@@ -137,6 +138,12 @@ class ReviewSerializer(serializers.ModelSerializer):
             booking = Booking.objects.get(id=booking_id)
         except Booking.DoesNotExist:
             raise serializers.ValidationError({'booking_id': 'Booking not found'})
+
+        # Дозволити залишити відгук лише клієнту, який здійснив бронювання
+        if booking.customer != self.context['request'].user:
+            raise serializers.ValidationError({
+                'booking_id': 'You can only review your own completed bookings'
+            })
 
         # Автоматично встановити поля
         validated_data['booking'] = booking
