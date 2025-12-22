@@ -1,5 +1,5 @@
 from rest_framework import viewsets, permissions
-from django.contrib.auth import get_user_model, login, authenticate
+from django.contrib.auth import get_user_model, login, authenticate, logout
 from django.shortcuts import render, redirect
 from django.contrib.auth.forms import  AuthenticationForm
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -61,8 +61,6 @@ class EmailTokenObtainPairView(TokenObtainPairView):
 
 # Початкова сторінка
 def welcome_view(request):
-    if request.user.is_authenticated:
-        return redirect('/api/listings/')  # або твій URL після логіну
     return render(request, 'users/welcome.html')
 
 
@@ -83,7 +81,7 @@ def register_view(request):
 # Логін
 def login_view(request):
     if request.user.is_authenticated:
-        return redirect('/api/listings/')
+        return redirect('/')
 
     if request.method == 'POST':
         form = EmailAuthenticationForm(request, data=request.POST)
@@ -94,3 +92,8 @@ def login_view(request):
         form = EmailAuthenticationForm()
 
     return render(request, 'users/login.html', {'form': form})
+
+
+def logout_view(request):
+    logout(request)
+    return redirect('/')
