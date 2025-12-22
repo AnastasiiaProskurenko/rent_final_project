@@ -46,10 +46,11 @@ class ReviewViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
 
         if self.request.user.is_authenticated:
-            # Показати свої відгуки + всі видимі
+            # Показати свої відгуки + всі видимі + відгуки на свої оголошення
             return queryset.filter(
                 models.Q(reviewer=self.request.user) |
-                models.Q(is_visible=True)
+                models.Q(is_visible=True) |
+                models.Q(listing__owner=self.request.user)
             )
         else:
             # Тільки видимі для анонімних
