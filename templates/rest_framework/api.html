@@ -1,0 +1,16 @@
+{% extends "rest_framework/base.html" %}
+{% load rest_framework %}
+{% load i18n %}
+
+{% block userlinks %}
+  {% if user.is_authenticated %}
+    <li class="navbar-text hidden-xs">{{ user.get_username }}</li>
+    <li>
+      <a class="btn btn-danger navbar-btn" href="{% url 'logout' %}">
+        {% trans "Logout" %}
+      </a>
+    </li>
+  {% else %}
+    {% optional_login request %}
+  {% endif %}
+{% endblock %}
