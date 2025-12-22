@@ -14,6 +14,7 @@ from .serializers import (
     OwnerRatingSerializer,
     OwnerResponseSerializer
 )
+from .permissions import CanCreateReviewAsCustomer
 from apps.listings.models import Listing
 
 
@@ -35,7 +36,7 @@ class ReviewViewSet(viewsets.ModelViewSet):
         'booking'
     ).all()
     serializer_class = ReviewSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    permission_classes = [CanCreateReviewAsCustomer]
 
     def get_queryset(self):
         """
@@ -93,6 +94,12 @@ class ReviewViewSet(viewsets.ModelViewSet):
             return Response(
                 {'detail': 'Only the listing owner can respond to reviews'},
                 status=status.HTTP_403_FORBIDDEN
+            )
+
+        if review.rating is None:
+            return Response(
+                {'detail': 'Owner responses are available after a rating has been posted'},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
         # Валідувати відповідь
