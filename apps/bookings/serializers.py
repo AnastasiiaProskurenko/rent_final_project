@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from apps.common.enums import BookingStatus
 from .models import Booking
 from apps.listings.models import Listing, ListingPhoto
 from apps.listings.serializers import LocationSerializer as ListingLocationSerializer
@@ -180,13 +181,13 @@ class BookingUpdateSerializer(serializers.ModelSerializer):
         user = self.context['request'].user
 
         # Тільки власник оголошення може підтверджувати
-        if value == 'CONFIRMED' and booking.listing.owner != user:
+        if value == BookingStatus.CONFIRMED and booking.listing.owner != user:
             raise serializers.ValidationError(
                 "Тільки власник може підтверджувати бронювання"
             )
 
         # Тільки клієнт або власник можуть скасовувати
-        if value == 'CANCELLED':
+        if value == BookingStatus.CANCELLED:
             if user not in [booking.customer, booking.listing.owner]:
                 raise serializers.ValidationError(
                     "Ви не можете скасувати це бронювання"
@@ -218,22 +219,22 @@ class BookingStatusUpdateSerializer(serializers.ModelSerializer):
             return data
 
         # Перевірка прав на зміну статусу
-        if new_status == 'CONFIRMED':
+        if new_status == BookingStatus.CONFIRMED:
             if booking.listing.owner != user:
                 raise serializers.ValidationError({
                     'status': "Тільки власник оголошення може підтверджувати бронювання"
                 })
-            if booking.status != 'PENDING':
+            if booking.status != BookingStatus.PENDING:
                 raise serializers.ValidationError({
                     'status': "Можна підтвердити тільки бронювання зі статусом PENDING"
                 })
 
-        elif new_status == 'CANCELLED':
+        elif new_status == BookingStatus.CANCELLED:
             if user not in [booking.customer, booking.listing.owner]:
                 raise serializers.ValidationError({
                     'status': "Ви не можете скасувати це бронювання"
                 })
-            if booking.status == 'COMPLETED':
+            if booking.status == BookingStatus.COMPLETED:
                 raise serializers.ValidationError({
                     'status': "Не можна скасувати завершене бронювання"
                 })
@@ -242,14 +243,24 @@ class BookingStatusUpdateSerializer(serializers.ModelSerializer):
                     'cancellation_reason': "Вкажіть причину скасування"
                 })
 
-        elif new_status == 'COMPLETED':
+        elif new_status == BookingStatus.COMPLETED:
             if booking.listing.owner != user:
                 raise serializers.ValidationError({
                     'status': "Тільки власник може відмічати бронювання як завершене"
                 })
-            if booking.status != 'CONFIRMED':
+            if booking.status != BookingStatus.CONFIRMED:
                 raise serializers.ValidationError({
                     'status': "Можна завершити тільки підтверджене бронювання"
+                })
+
+        elif new_status == BookingStatus.REJECTED:
+            if booking.listing.owner != user:
+                raise serializers.ValidationError({
+                    'status': "Тільки власник може відхиляти бронювання"
+                })
+            if booking.status != BookingStatus.PENDING:
+                raise serializers.ValidationError({
+                    'status': "Відхиляти можна лише бронювання у статусі PENDING"
                 })
 
         return data
