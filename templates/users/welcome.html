@@ -153,25 +153,47 @@
             <p>Real estate rental</p>
         </div>
 
-        <h2>Welcome!</h2>
+        {% if user.is_authenticated %}
+            <h2>Ви увійшли як {{ user.get_full_name|default:user.email }}</h2>
 
-        <div class="buttons">
-            <a href="/login/" class="btn btn-primary">
-                 Log in
-            </a>
+            <div class="buttons">
+                <a href="/api/listings/" class="btn btn-primary">
+                    Перейти до оголошень
+                </a>
 
-            <div class="divider">
-                <span>or</span>
+                <div class="divider">
+                    <span>або</span>
+                </div>
+
+                <a href="/logout/" class="btn btn-secondary">
+                    Вийти
+                </a>
             </div>
 
-            <a href="/register/" class="btn btn-secondary">
-                 Register
-            </a>
-        </div>
+            <div class="footer">
+                <p>Потрібно зайти під іншим профілем? Вийдіть і увійдіть знову.</p>
+            </div>
+        {% else %}
+            <h2>Welcome!</h2>
 
-        <div class="footer">
-            <p>Create an account or log in to continue</p>
-        </div>
+            <div class="buttons">
+                <a href="/login/" class="btn btn-primary">
+                     Log in
+                </a>
+
+                <div class="divider">
+                    <span>or</span>
+                </div>
+
+                <a href="/register/" class="btn btn-secondary">
+                     Register
+                </a>
+            </div>
+
+            <div class="footer">
+                <p>Create an account or log in to continue</p>
+            </div>
+        {% endif %}
     </div>
 </body>
 </html>
