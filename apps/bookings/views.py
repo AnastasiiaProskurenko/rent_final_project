@@ -93,7 +93,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         elif self.action in ['update', 'partial_update']:
             return BookingUpdateSerializer
 
-        elif self.action in ['approve', 'reject', 'cancel', 'complete']:
+        elif self.action in ['approve', 'reject', 'cancel', 'complete', 'change_status']:
             return BookingStatusUpdateSerializer
 
         return BookingSerializer
@@ -418,6 +418,30 @@ class BookingViewSet(viewsets.ModelViewSet):
 
         serializer = BookingSerializer(booking)
         return Response(serializer.data)
+
+    @action(
+        detail=True,
+        methods=['patch'],
+        permission_classes=[permissions.IsAuthenticated, IsListingOwnerOrAdmin]
+    )
+    def change_status(self, request, pk=None):
+        """
+        Змінити статус бронювання власником оголошення
+        PATCH /api/bookings/{id}/change_status/
+        Тіло: {"status": "confirmed" | "rejected" | "cancelled" | "completed"}
+        """
+        booking = self.get_object()
+
+        serializer = BookingStatusUpdateSerializer(
+            booking,
+            data=request.data,
+            partial=True,
+            context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(BookingSerializer(booking).data)
 
     # ============================================
     # CUSTOM ACTIONS - СТАТИСТИКА
