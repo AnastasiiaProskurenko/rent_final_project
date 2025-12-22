@@ -122,11 +122,6 @@ class ReviewSerializer(serializers.ModelSerializer):
         booking_id = attrs.get('booking_id')
         request = self.context.get('request')
 
-        if request and request.user.is_authenticated and request.user.is_owner():
-            raise serializers.ValidationError({
-                'booking_id': 'Only customers can create reviews'
-            })
-
         # Має бути rating АБО comment
         if not rating and not comment:
             raise serializers.ValidationError(
@@ -165,6 +160,12 @@ class ReviewSerializer(serializers.ModelSerializer):
 
         if booking is None:
             raise serializers.ValidationError({'booking_id': 'Booking is required to create a review'})
+
+        # Дозволити залишити відгук лише клієнту, який здійснив бронювання
+        if booking.customer != self.context['request'].user:
+            raise serializers.ValidationError({
+                'booking_id': 'You can only review your own completed bookings'
+            })
 
         # Автоматично встановити поля
         validated_data['booking'] = booking
