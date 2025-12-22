@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 
 from .models import Review, ListingRating, OwnerRating
+from apps.bookings.models import Booking
 from apps.common.constants import (
     MIN_RATING,
     MAX_RATING,
@@ -43,7 +44,19 @@ class ReviewSerializer(serializers.ModelSerializer):
     has_owner_response = serializers.BooleanField(read_only=True)
 
     # Write-only поля
-    booking_id = serializers.IntegerField(write_only=True, required=True)
+    booking_id = serializers.PrimaryKeyRelatedField(
+        source='booking',
+        queryset=Booking.objects.none(),
+        write_only=True,
+        required=True,
+        label='Booking ID'
+    )
+
+    rating = serializers.ChoiceField(
+        choices=[(i, i) for i in range(MIN_RATING, MAX_RATING + 1)],
+        allow_null=True,
+        required=False
+    )
 
     class Meta:
         model = Review
@@ -88,6 +101,12 @@ class ReviewSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get('request')
+        if request and request.user and request.user.is_authenticated:
+            self.fields['booking_id'].queryset = Booking.objects.filter(customer=request.user)
 
     def validate_rating(self, value):
         """Валідація рейтингу"""
