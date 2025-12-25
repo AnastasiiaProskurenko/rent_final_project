@@ -72,7 +72,7 @@ class ListingViewViewSet(viewsets.ReadOnlyModelViewSet):
         """
         Мої перегляди (історія)
         """
-        views = ListingView.objects.filter(user=request.user).order_by('-viewed_at')[:20]
+        views = ListingView.objects.filter(user=request.user).order_by('-created_at')[:20]
         serializer = self.get_serializer(views, many=True)
         return Response(serializer.data)
 
@@ -107,4 +107,65 @@ class ListingViewViewSet(viewsets.ReadOnlyModelViewSet):
         return Response({
             'total_listings': my_listings.count(),
             'listings_stats': stats
+        })
+
+    @action(detail=False, methods=["get"], url_path="popular_nearby")
+    def popular_nearby(self, request):
+        user = request.user
+        if not user.is_authenticated:
+            return Response(
+                {"detail": "Authentication required"},
+                status=401
+            )
+
+        profile = getattr(user, "profile", None)
+        if not profile or not profile.city or not profile.country:
+            return Response(
+                {"detail": "User country/city is not set in profile"},
+                status=400
+            )
+
+        city = profile.city
+        country = profile.country
+
+        from apps.listings.models import Listing
+
+        popular = (
+            ListingView.objects
+            .filter(
+                listing__location__city__iexact=city,
+                listing__location__country__iexact=country
+            )
+            .values("listing")
+            .annotate(views_count=Count("id"))
+            .order_by("-views_count")[:10]
+        )
+
+        listing_ids = [x["listing"] for x in popular]
+        views_map = {x["listing"]: x["views_count"] for x in popular}
+
+        listings = (
+            Listing.objects
+            .filter(id__in=listing_ids)
+            .select_related("location", "owner")
+        )
+
+        results = [
+            {
+                "listing_id": l.id,
+                "title": l.title,
+                "city": l.location.city,
+                "country": l.location.country,
+                "total_views": views_map.get(l.id, 0),
+            }
+            for l in listings
+        ]
+
+        results.sort(key=lambda x: x["total_views"], reverse=True)
+
+        return Response({
+            "country": country,
+            "city": city,
+            "count": len(results),
+            "results": results,
         })

@@ -46,6 +46,19 @@ class UserProfile(TimeModel):
         related_name='profile',
         verbose_name='user'
     )
+    country = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name="Country"
+    )
+
+    city = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name="City"
+    )
 
     phone = models.CharField(
         max_length=30,

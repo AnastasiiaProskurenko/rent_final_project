@@ -3,7 +3,8 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
-
+from datetime import timedelta
+from django.utils import timezone
 from apps.search.models import SearchHistory
 
 from .models import Listing, ListingPhoto
@@ -16,6 +17,7 @@ from .serializers import (
 )
 from .filters import ListingFilter
 from .permissions import IsOwnerOrReadOnly, IsOwnerToCreate
+from ..analytics.models import ListingView
 
 
 class ListingViewSet(viewsets.ModelViewSet):
@@ -67,6 +69,40 @@ class ListingViewSet(viewsets.ModelViewSet):
             return self.get_paginated_response(serializer.data)
 
         serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    from datetime import timedelta
+    from django.utils import timezone
+
+    def retrieve(self, request, *args, **kwargs):
+        listing = self.get_object()
+
+        now = timezone.now()
+        since = now - timedelta(hours=24)
+
+        ip = request.META.get("REMOTE_ADDR")
+        ua = (request.META.get("HTTP_USER_AGENT") or "")[:255]
+        user = request.user if request.user.is_authenticated else None
+
+        qs = ListingView.objects.filter(listing=listing, created_at__gte=since)
+
+        # 1 view per 24h: user OR ip (for guests)
+        should_create = True
+        if user is not None:
+            should_create = not qs.filter(user=user).exists()
+        else:
+            if ip:
+                should_create = not qs.filter(user__isnull=True, ip=ip).exists()
+
+        if should_create:
+            ListingView.objects.create(
+                listing=listing,
+                user=user,
+                ip=ip,
+                user_agent=ua,
+            )
+
+        serializer = self.get_serializer(listing)
         return Response(serializer.data)
 
     def get_serializer_class(self):
