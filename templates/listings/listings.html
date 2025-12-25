@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title|default:"Оголошення" }}</title>
+    <style>
+        :root {
+            --bg: #f7f9fc;
+            --card: #ffffff;
+            --primary: #10b981;
+            --primary-dark: #0b8b64;
+            --text: #0f172a;
+            --muted: #64748b;
+            --border: #e2e8f0;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            min-height: 100vh;
+        }
+
+        header {
+            background: linear-gradient(135deg, #34d399, #10b981);
+            color: white;
+            padding: 28px 24px;
+            box-shadow: 0 12px 30px rgba(16, 185, 129, 0.25);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        header .title {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 26px;
+            letter-spacing: -0.02em;
+        }
+
+        header p {
+            margin: 6px 0 0 0;
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            color: white;
+            text-decoration: none;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.18);
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
+        }
+
+        main {
+            max-width: 1200px;
+            margin: 22px auto 60px;
+            padding: 0 16px;
+        }
+
+        .filters {
+            background: var(--card);
+            border: 1px solid var(--border);
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+            border-radius: 14px;
+            padding: 18px;
+            margin-bottom: 18px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            align-items: end;
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        label {
+            font-size: 14px;
+            color: var(--muted);
+        }
+
+        input, select {
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: #f8fafc;
+            font-size: 14px;
+            transition: border 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18);
+        }
+
+        .filter-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+            border: none;
+        }
+
+        .btn-secondary {
+            background: #e2e8f0;
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .listings {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+        }
+
+        .card img {
+            width: 100%;
+            height: 180px;
+            object-fit: cover;
+            background: #e2e8f0;
+        }
+
+        .card-body {
+            padding: 14px;
+            display: grid;
+            gap: 8px;
+        }
+
+        .card h3 {
+            margin: 0;
+            font-size: 18px;
+        }
+
+        .muted {
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .price {
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        .chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .chip {
+            background: #f1f5f9;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 12px;
+            color: #0f172a;
+            border: 1px solid #e2e8f0;
+        }
+
+        .empty {
+            background: var(--card);
+            border: 1px dashed var(--border);
+            border-radius: 14px;
+            padding: 22px;
+            text-align: center;
+            color: var(--muted);
+        }
+
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            background: #ecfeff;
+            color: #0f172a;
+            border-radius: 999px;
+            border: 1px solid #a5f3fc;
+            font-weight: 600;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="title">
+            <div>
+                <h1>Оголошення</h1>
+                <p>Публічна сторінка списку з API <code>{{ api_endpoint }}</code></p>
+            </div>
+            <div class="actions">
+                <a class="btn" href="/">Головна</a>
+                <a class="btn" href="/login/">Увійти</a>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <form class="filters" id="filters-form">
+            <div class="field">
+                <label for="search">Пошук (назва, опис, місто)</label>
+                <input type="text" id="search" name="search" placeholder="apartment, Kyiv, sea view...">
+            </div>
+            <div class="field">
+                <label for="city">Місто</label>
+                <input type="text" id="city" name="city" placeholder="Kyiv">
+            </div>
+            <div class="field">
+                <label for="min_price">Мін. ціна</label>
+                <input type="number" id="min_price" name="min_price" min="0" step="10" placeholder="0">
+            </div>
+            <div class="field">
+                <label for="max_price">Макс. ціна</label>
+                <input type="number" id="max_price" name="max_price" min="0" step="10" placeholder="500">
+            </div>
+            <div class="field">
+                <label for="ordering">Сортування</label>
+                <select id="ordering" name="ordering">
+                    <option value="">За замовчуванням</option>
+                    <option value="price">Ціна ↑</option>
+                    <option value="-price">Ціна ↓</option>
+                    <option value="max_guests">К-сть гостей ↑</option>
+                    <option value="-max_guests">К-сть гостей ↓</option>
+                    <option value="-created_at">Нові</option>
+                </select>
+            </div>
+            <div class="filter-actions">
+                <button type="submit" class="btn btn-primary">Знайти</button>
+                <button type="button" id="reset-btn" class="btn btn-secondary">Скинути</button>
+            </div>
+        </form>
+
+        <div class="status-bar" id="status"></div>
+        <div class="listings" id="listings"></div>
+        <div class="empty" id="empty-state" style="display: none;">Оголошень не знайдено.</div>
+    </main>
+
+    <script>
+        const endpoint = "{{ api_endpoint }}";
+        const listingsContainer = document.getElementById('listings');
+        const statusBar = document.getElementById('status');
+        const emptyState = document.getElementById('empty-state');
+        const filtersForm = document.getElementById('filters-form');
+        const resetBtn = document.getElementById('reset-btn');
+
+        const placeholder =
+            'https://images.unsplash.com/photo-1505692069463-9b3616a623f0?auto=format&fit=crop&w=1000&q=60';
+
+        function buildParams(formData) {
+            const params = new URLSearchParams();
+            formData.forEach((value, key) => {
+                if (value) params.append(key, value);
+            });
+            return params;
+        }
+
+        function renderStatus(text, count = null) {
+            const pieces = [];
+            if (text) pieces.push(text);
+            if (count !== null) pieces.push(`Знайдено: ${count}`);
+            statusBar.textContent = pieces.join(' • ');
+        }
+
+        function extractImage(listing) {
+            const photos = listing.photos || [];
+            if (listing.main_photo) return listing.main_photo;
+            if (photos.length && photos[0].image) return photos[0].image;
+            if (photos.length && typeof photos[0] === 'string') return photos[0];
+            return placeholder;
+        }
+
+        function renderListings(listings) {
+            listingsContainer.innerHTML = '';
+            if (!listings.length) {
+                emptyState.style.display = 'block';
+                return;
+            }
+            emptyState.style.display = 'none';
+
+            listings.forEach((item) => {
+                const card = document.createElement('article');
+                card.className = 'card';
+                card.innerHTML = `
+                    <img src="${extractImage(item)}" alt="${item.title || 'Listing photo'}">
+                    <div class="card-body">
+                        <h3>${item.title || 'Без назви'}</h3>
+                        <div class="muted">${item.city || item.location?.city || 'Невідоме місто'}, ${item.country || item.location?.country || ''}</div>
+                        <div class="price">₴${item.price ?? '—'} / ніч</div>
+                        <div class="chips">
+                            ${item.property_type ? `<span class="chip">${item.property_type}</span>` : ''}
+                            ${item.max_guests ? `<span class="chip">до ${item.max_guests} гостей</span>` : ''}
+                            ${item.num_rooms ? `<span class="chip">${item.num_rooms} кімн.</span>` : ''}
+                        </div>
+                        <div class="muted">
+                            Рейтинг: ${item.average_rating ?? '—'} · Відгуків: ${item.review_count ?? '—'}
+                        </div>
+                        ${item.description ? `<p class="muted">${item.description.slice(0, 120)}${item.description.length > 120 ? '…' : ''}</p>` : ''}
+                    </div>
+                `;
+                listingsContainer.appendChild(card);
+            });
+        }
+
+        async function loadListings(params = new URLSearchParams()) {
+            const url = params.toString() ? `${endpoint}?${params}` : endpoint;
+            renderStatus('Завантаження…');
+            try {
+                const res = await fetch(url, { headers: { Accept: 'application/json' } });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                const listings = Array.isArray(data) ? data : data.results || [];
+                renderListings(listings);
+                renderStatus('Готово', Array.isArray(data) ? listings.length : data.count ?? listings.length);
+            } catch (error) {
+                console.error(error);
+                renderStatus('Не вдалося завантажити оголошення');
+                listingsContainer.innerHTML = '';
+                emptyState.style.display = 'block';
+                emptyState.textContent = 'Сталася помилка під час завантаження.';
+            }
+        }
+
+        filtersForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const formData = new FormData(filtersForm);
+            const params = buildParams(formData);
+            loadListings(params);
+            const newSearch = params.toString();
+            const newUrl = newSearch ? `${location.pathname}?${newSearch}` : location.pathname;
+            window.history.replaceState({}, '', newUrl);
+        });
+
+        resetBtn.addEventListener('click', () => {
+            filtersForm.reset();
+            loadListings();
+            window.history.replaceState({}, '', location.pathname);
+        });
+
+        // Ініціалізуємо значення з URL, якщо є
+        const initialParams = new URLSearchParams(location.search);
+        ['search', 'city', 'min_price', 'max_price', 'ordering'].forEach((key) => {
+            if (initialParams.has(key)) {
+                const el = document.querySelector(`[name=\"${key}\"]`);
+                if (el) el.value = initialParams.get(key);
+            }
+        });
+
+        loadListings(initialParams);
+    </script>
+</body>
+</html>
