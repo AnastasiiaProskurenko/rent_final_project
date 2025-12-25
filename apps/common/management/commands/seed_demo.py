@@ -273,7 +273,15 @@ class Command(BaseCommand):
             phone, avatar, biography, languages
             """
             profile, _ = UserProfile.objects.get_or_create(user=user)
-
+            profile.country = "Germany"
+            profile.city = pick([
+                "Berlin",
+                "Hamburg",
+                "Munich",
+                "Cologne",
+                "Frankfurt am Main",
+            ])
+            profile.save(update_fields=["country", "city"])
             # phone (DE)
             if not profile.phone:
                 profile.phone = f"+49{random.randint(1500000000, 1799999999)}"
@@ -433,8 +441,8 @@ class Command(BaseCommand):
         today = timezone.now().date()
 
         total = opts["bookings"]
-        completed_count = max(1, total // 5)
-        cancelled_count = max(1, total // 5)
+        completed_count = max(1, total * 30 // 100)
+        cancelled_count = max(1, total * 15 // 100)
         active_count = total - completed_count - cancelled_count
 
         # 1) COMPLETED (прошлые даты) -> bulk_create, чтобы обойти запрет на прошлое
@@ -550,41 +558,48 @@ class Command(BaseCommand):
                 continue
 
         # ---------- REVIEWS ----------
+        # ---------- REVIEWS ----------
         self.stdout.write("Creating reviews.")
         reviews_created = 0
-        review_fields = field_names(Review)
+
+        completed_bookings_db = (
+            Booking.objects
+            .filter(status=BookingStatus.COMPLETED)
+            .select_related("listing", "customer")
+        )
+
+        self.stdout.write(f"Completed bookings for reviews: {completed_bookings_db.count()}")
 
         for b in completed_bookings_db:
-            r = Review()
+            # ✅ правильна перевірка OneToOne
+            if Review.objects.filter(booking=b).exists():
+                continue
 
-            if "booking" in review_fields:
-                safe_set(r, "booking", b)
-            if "listing" in review_fields:
-                safe_set(r, "listing", b.listing)
-            if "customer" in review_fields:
-                safe_set(r, "customer", b.customer)
-            if "user" in review_fields and "customer" not in review_fields:
-                safe_set(r, "user", b.customer)
-
-            if "rating" in review_fields:
-                safe_set(r, "rating", random.randint(3, 5))
-            if "comment" in review_fields:
-                safe_set(r, "comment", pick([
+            r = Review(
+                booking=b,
+                reviewer=b.customer,
+                listing=b.listing,
+                rating=random.randint(3, 5),
+                comment=pick([
                     "Everything was great, clean and comfortable.",
                     "Nice place, good location. Would stay again.",
                     "Good value for money. Smooth check-in.",
                     "Cozy apartment, friendly host.",
-                ]))
-            if "is_published" in review_fields:
-                safe_set(r, "is_published", True)
-
-            fill_required_fields(r)
+                    "Excellent experience. Highly recommended.",
+                ]),
+                is_visible=True,
+                is_verified=True,
+            )
 
             try:
                 r.save()
                 reviews_created += 1
-            except Exception:
+            except Exception as e:
+                # Якщо хочеш — можна логувати 1-2 помилки, щоб побачити причину
+                # self.stdout.write(self.style.WARNING(f"Review error: {e}"))
                 continue
+
+        self.stdout.write(self.style.SUCCESS(f"Reviews created: {reviews_created}"))
 
         # ---------- DONE ----------
         self.stdout.write(self.style.SUCCESS(
