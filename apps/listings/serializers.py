@@ -605,53 +605,43 @@ class ListingCreateSerializer(LocationSerializerMixin, serializers.ModelSerializ
 
 class ListingListSerializer(serializers.ModelSerializer):
     """
-    Спрощений серіалізатор для списку оголошень
-    ✅ Без детальної інформації, з константами
+    ✅ Короткий серіалізатор для списку оголошень:
+    тільки назва, ціна, локація, головна фотка, кімнати, макс гостей
     """
-
-    owner_name = serializers.SerializerMethodField()
+    location = LocationSerializer(read_only=True)
     main_photo = serializers.SerializerMethodField()
-    average_rating = serializers.FloatField( read_only=True)
-    review_count = serializers.IntegerField( read_only=True)
-    city = serializers.SerializerMethodField()
-    country = serializers.SerializerMethodField()
 
     class Meta:
         model = Listing
         fields = [
             'id',
-            'title',
-            'property_type',
-            'city',
-            'country',
-            'price',
-            'max_guests',
-            'num_rooms',
             'main_photo',
+            'owner',
+            'title',
+            'description',
+            'property_type',
+            'location',
+            'max_guests',
+            'price',
             'average_rating',
-            'review_count',
-            'owner_name',
-            'is_hotel_apartment',
+            'is_active',
+            'is_verified',
         ]
 
-    def get_owner_name(self, obj):
-        """Отримати ім'я власника"""
-        return obj.owner.get_full_name() or obj.owner.email
-
-    def get_city(self, obj):
-        return obj.location.city if obj.location else None
-
-    def get_country(self, obj):
-        return obj.location.country if obj.location else None
-
     def get_main_photo(self, obj):
-        """Отримати головне фото"""
-        photo = obj.photos.first()
-        if photo:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(photo.image.url)
-        return None
+        """
+        У ListingPhoto немає is_main, є order.
+        Тому головне фото = перше за order.
+        """
+        photo = obj.photos.order_by("order", "created_at").first()
+        if not photo:
+            return None
+
+        request = self.context.get("request")
+        if request:
+            return request.build_absolute_uri(photo.image.url)
+        return photo.image.url
+
 
 
 class ListingDetailSerializer(ListingSerializer):
@@ -707,32 +697,14 @@ class PublicListingSerializer(ListingSerializer):
             'description',
             'property_type',
             'location',
-            'location_id',
             'country',
             'city',
-            'address',
-            'latitude',
-            'longitude',
-            'is_hotel_apartment',
-            'hotel_rooms_count',
-            'num_rooms',
-            'num_bedrooms',
-            'num_bathrooms',
             'max_guests',
-            'area',
             'price',
-            'cleaning_fee',
-            'cancellation_policy',
-            'amenities',
-            'amenity_ids',
             'photos',
             'average_rating',
-            'owner_rating',
-            'review_count',
             'is_active',
             'is_verified',
-            'created_at',
-            'updated_at',
         ]
         read_only_fields = tuple(fields)
 

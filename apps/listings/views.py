@@ -15,6 +15,7 @@ from .serializers import (
     ListingPhotoSerializer,
     PublicListingSerializer,
     PublicListingDetailSerializer,
+    ListingListSerializer,
 )
 from .filters import ListingFilter
 from .permissions import IsOwnerOrReadOnly, IsOwnerToCreate
@@ -33,7 +34,13 @@ class ListingViewSet(viewsets.ModelViewSet):
     destroy: Видалити оголошення
     """
 
-    queryset = Listing.objects.select_related('location', 'owner').all()
+    queryset = (
+        Listing.objects
+        .select_related("location", "owner")
+        .prefetch_related("photos")  # ✅
+        .all()
+    )
+
     permission_classes = [
         permissions.IsAuthenticatedOrReadOnly,
         IsOwnerToCreate,
@@ -79,8 +86,7 @@ class ListingViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-    from datetime import timedelta
-    from django.utils import timezone
+
 
     def retrieve(self, request, *args, **kwargs):
         listing = self.get_object()
@@ -121,9 +127,9 @@ class ListingViewSet(viewsets.ModelViewSet):
             return ListingDetailSerializer if is_authenticated else PublicListingDetailSerializer
 
         if self.action == 'list':
-            return ListingSerializer if is_authenticated else PublicListingSerializer
+            return ListingListSerializer
 
-        return ListingSerializer
+        return ListingListSerializer
 
     def perform_create(self, serializer):
         """Автоматично встановити власника"""
