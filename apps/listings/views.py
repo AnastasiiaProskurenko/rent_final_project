@@ -1,5 +1,5 @@
 from rest_framework import viewsets, permissions, status, filters
-from rest_framework.renderers import TemplateHTMLRenderer, JSONRenderer, BrowsableAPIRenderer
+from rest_framework.renderers import JSONRenderer, BrowsableAPIRenderer, TemplateHTMLRenderer
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -15,6 +15,7 @@ from .serializers import (
     ListingPhotoSerializer,
     PublicListingSerializer,
     PublicListingDetailSerializer,
+    ListingListSerializer,
 )
 from .filters import ListingFilter
 from .permissions import IsOwnerOrReadOnly, IsOwnerToCreate
@@ -33,15 +34,19 @@ class ListingViewSet(viewsets.ModelViewSet):
     destroy: Видалити оголошення
     """
 
-    queryset = Listing.objects.select_related('location', 'owner').all()
+    queryset = (
+        Listing.objects
+        .select_related("location", "owner")
+        .prefetch_related("photos")  # ✅
+        .all()
+    )
+
     permission_classes = [
         permissions.IsAuthenticatedOrReadOnly,
         IsOwnerToCreate,
         IsOwnerOrReadOnly,
     ]
-    # Template renderer ставимо першим, щоб браузерні запити (Accept: text/html)
-    # автоматично показували HTML-сторінку, а не DRF browsable API.
-    renderer_classes = [TemplateHTMLRenderer, JSONRenderer, BrowsableAPIRenderer]
+    renderer_classes = [JSONRenderer, BrowsableAPIRenderer, TemplateHTMLRenderer]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ListingFilter
     search_fields = ['title', 'description', 'location__city', 'location__address']
@@ -49,15 +54,11 @@ class ListingViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at']
 
     def list(self, request, *args, **kwargs):
-        # Віддаємо HTML, якщо контент-переговори вибрали TemplateHTMLRenderer
-        if isinstance(request.accepted_renderer, TemplateHTMLRenderer):
-            return Response(
-                {
-                    'page_title': 'Оголошення',
-                    'api_endpoint': '/api/listings/',
-                },
-                template_name='listings/listings.html',
-            )
+        if request.accepted_renderer.format == 'html':
+            return Response({
+                'page_title': 'Оголошення',
+                'api_endpoint': '/api/listings/',
+            }, template_name='listings/listings.html')
 
         queryset = self.filter_queryset(self.get_queryset())
 
@@ -85,8 +86,7 @@ class ListingViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-    from datetime import timedelta
-    from django.utils import timezone
+
 
     def retrieve(self, request, *args, **kwargs):
         listing = self.get_object()
@@ -127,9 +127,9 @@ class ListingViewSet(viewsets.ModelViewSet):
             return ListingDetailSerializer if is_authenticated else PublicListingDetailSerializer
 
         if self.action == 'list':
-            return ListingSerializer if is_authenticated else PublicListingSerializer
+            return ListingListSerializer
 
-        return ListingSerializer
+        return ListingListSerializer
 
     def perform_create(self, serializer):
         """Автоматично встановити власника"""
