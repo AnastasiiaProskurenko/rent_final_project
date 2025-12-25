@@ -1,4 +1,5 @@
 from rest_framework import viewsets, permissions, status, filters
+from rest_framework.renderers import TemplateHTMLRenderer, JSONRenderer, BrowsableAPIRenderer
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -38,6 +39,9 @@ class ListingViewSet(viewsets.ModelViewSet):
         IsOwnerToCreate,
         IsOwnerOrReadOnly,
     ]
+    # Template renderer ставимо першим, щоб браузерні запити (Accept: text/html)
+    # автоматично показували HTML-сторінку, а не DRF browsable API.
+    renderer_classes = [TemplateHTMLRenderer, JSONRenderer, BrowsableAPIRenderer]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ListingFilter
     search_fields = ['title', 'description', 'location__city', 'location__address']
@@ -45,6 +49,12 @@ class ListingViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at']
 
     def list(self, request, *args, **kwargs):
+        if request.accepted_renderer.format == 'html':
+            return Response({
+                'page_title': 'Оголошення',
+                'api_endpoint': '/api/listings/',
+            }, template_name='listings/listings.html')
+
         queryset = self.filter_queryset(self.get_queryset())
 
         search_query = request.query_params.get('search', '').strip()
