@@ -18,7 +18,7 @@ from .serializers import (
     ListingListSerializer,
 )
 from .filters import ListingFilter
-from .permissions import IsOwnerOrReadOnly, IsOwnerToCreate
+from .permissions import IsOwnerOrReadOnly, IsOwnerToCreate, IsOwnerRoleOrAdmin
 from ..analytics.models import ListingView
 
 
@@ -126,10 +126,10 @@ class ListingViewSet(viewsets.ModelViewSet):
         if self.action == 'retrieve':
             return ListingDetailSerializer if is_authenticated else PublicListingDetailSerializer
 
-        if self.action == 'list':
+        if self.action in ('list', 'my_listings'):
             return ListingListSerializer
 
-        return ListingListSerializer
+        return ListingSerializer
 
     def perform_create(self, serializer):
         """Автоматично встановити власника"""
@@ -154,7 +154,7 @@ class ListingViewSet(viewsets.ModelViewSet):
     @action(
         detail=False,
         methods=['get'],
-        permission_classes=[IsAuthenticated],
+        permission_classes=[IsAuthenticated, IsOwnerRoleOrAdmin],
         url_path='my_listings'
     )
     def my_listings(self, request):
