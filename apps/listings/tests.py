@@ -113,7 +113,7 @@ class ListingCreationPermissionTests(TestCase):
     def _payload(self):
         return {
             'title': 'New listing',
-            'description': 'Nice place',
+            'description': 'Nice place with plenty of details to satisfy validation requirements for descriptions.',
             'property_type': PropertyType.APARTMENT,
             'location_id': self.location.id,
             'is_hotel_apartment': False,
@@ -142,3 +142,76 @@ class ListingCreationPermissionTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(Listing.objects.count(), 0)
+
+
+class MyListingsPermissionsTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.owner = User.objects.create_user(
+            username='owner-my-listings',
+            email='owner-my-listings@example.com',
+            password='password123',
+            role=UserRole.OWNER,
+        )
+        self.admin = User.objects.create_user(
+            username='admin-my-listings',
+            email='admin-my-listings@example.com',
+            password='password123',
+            role=UserRole.ADMIN,
+        )
+        self.customer = User.objects.create_user(
+            username='customer-my-listings',
+            email='customer-my-listings@example.com',
+            password='password123',
+            role=UserRole.CUSTOMER,
+        )
+        location = Location.objects.create(
+            country='Ukraine',
+            city='Lviv',
+            address='My Listings street 1',
+        )
+        self.listing = Listing.objects.create(
+            owner=self.owner,
+            title='Owner listing',
+            description='Test listing',
+            property_type=PropertyType.APARTMENT,
+            location=location,
+            is_hotel_apartment=False,
+            num_rooms=1,
+            num_bedrooms=1,
+            num_bathrooms=1,
+            max_guests=2,
+            area=Decimal('20.00'),
+            price=Decimal('50.00'),
+            cancellation_policy=CancellationPolicy.FLEXIBLE,
+        )
+
+    def _get_results(self, response):
+        return response.data['results'] if isinstance(response.data, dict) and 'results' in response.data else response.data
+
+    def test_owner_can_access_my_listings(self):
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.get('/api/listings/my_listings/')
+
+        self.assertEqual(response.status_code, 200)
+        results = self._get_results(response)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['id'], self.listing.id)
+        self.assertEqual(results[0]['owner'], self.owner.id)
+
+    def test_admin_can_access_my_listings(self):
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.get('/api/listings/my_listings/')
+
+        self.assertEqual(response.status_code, 200)
+        results = self._get_results(response)
+        self.assertEqual(results, [])
+
+    def test_customer_cannot_access_my_listings(self):
+        self.client.force_authenticate(self.customer)
+
+        response = self.client.get('/api/listings/my_listings/')
+
+        self.assertEqual(response.status_code, 403)

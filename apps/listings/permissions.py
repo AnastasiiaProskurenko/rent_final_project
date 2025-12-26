@@ -47,3 +47,14 @@ class IsOwnerToCreate(permissions.BasePermission):
 
         # Інші небезпечні методи (PUT/PATCH/DELETE) вимагають автентифікації
         return request.user.is_authenticated
+
+
+class IsOwnerRoleOrAdmin(permissions.BasePermission):
+    """
+    Дозволяє доступ тільки власникам та адміністраторам
+    """
+
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and (
+            request.user.is_owner() or request.user.is_admin()
+        )

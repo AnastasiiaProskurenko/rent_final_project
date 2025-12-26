@@ -610,6 +610,7 @@ class ListingListSerializer(serializers.ModelSerializer):
     """
     location = LocationSerializer(read_only=True)
     main_photo = serializers.SerializerMethodField()
+    owner_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Listing
@@ -617,6 +618,7 @@ class ListingListSerializer(serializers.ModelSerializer):
             'id',
             'main_photo',
             'owner',
+            'owner_name',
             'title',
             'description',
             'property_type',
@@ -641,6 +643,9 @@ class ListingListSerializer(serializers.ModelSerializer):
         if request:
             return request.build_absolute_uri(photo.image.url)
         return photo.image.url
+
+    def get_owner_name(self, obj):
+        return obj.owner.get_full_name() or obj.owner.email
 
 
 
