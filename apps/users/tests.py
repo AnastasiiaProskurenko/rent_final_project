@@ -228,15 +228,13 @@ class UserModelTests(TestCase):
 
 class UserSignalTests(TestCase):
     def test_system_notification_created_on_user_creation(self):
-        buffer = io.StringIO()
-        with redirect_stdout(buffer):
-            user = User.objects.create_user(
-                username='notifieduser',
-                email='notify@example.com',
-                password='notify-pass',
-                first_name='Notify',
-                last_name='User',
-            )
+        user = User.objects.create_user(
+            username='notifieduser',
+            email='notify@example.com',
+            password='notify-pass',
+            first_name='Notify',
+            last_name='User',
+        )
 
         notifications = Notification.objects.filter(user=user)
 
@@ -245,7 +243,6 @@ class UserSignalTests(TestCase):
         self.assertEqual(notification.notification_type, 'SYSTEM')
         self.assertEqual(notification.title, 'User Notify User створений')
         self.assertEqual(notification.message, 'User Notify User створений')
-        self.assertIn('User Notify User створений', buffer.getvalue())
 
 
 class UserProfileTests(TestCase):

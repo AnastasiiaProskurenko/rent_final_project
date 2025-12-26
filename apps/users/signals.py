@@ -33,4 +33,3 @@ def create_user_creation_notification(sender, instance, created, **kwargs):
         message=title,
         notification_type='SYSTEM',
     )
-    print(title)
