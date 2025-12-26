@@ -7,6 +7,7 @@ from apps.common.enums import PropertyType, CancellationPolicy, UserRole
 from apps.common.models import Location
 from apps.listings.models import Listing
 from apps.search.models import SearchHistory
+from apps.notifications.models import Notification
 from apps.users.models import User
 
 
@@ -215,3 +216,46 @@ class MyListingsPermissionsTests(TestCase):
         response = self.client.get('/api/listings/my_listings/')
 
         self.assertEqual(response.status_code, 403)
+
+
+class ListingNotificationTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='owner-notification',
+            email='owner-notification@example.com',
+            password='password123',
+            role=UserRole.OWNER,
+        )
+        self.location = Location.objects.create(
+            country='Ukraine',
+            city='Odesa',
+            address='Notification street 1',
+        )
+
+    def test_notification_created_on_listing_creation(self):
+        initial_notifications_count = Notification.objects.filter(user=self.owner).count()
+
+        listing = Listing.objects.create(
+            owner=self.owner,
+            title='Notification listing',
+            description='Test listing notification',
+            property_type=PropertyType.APARTMENT,
+            location=self.location,
+            is_hotel_apartment=False,
+            num_rooms=1,
+            num_bedrooms=1,
+            num_bathrooms=1,
+            max_guests=2,
+            area=Decimal('20.00'),
+            price=Decimal('120.00'),
+            cancellation_policy=CancellationPolicy.FLEXIBLE,
+        )
+
+        notifications = Notification.objects.filter(user=self.owner)
+        self.assertEqual(notifications.count(), initial_notifications_count + 1)
+
+        latest_notification = notifications.order_by('-created_at').first()
+        self.assertEqual(latest_notification.notification_type, 'LISTING')
+        self.assertEqual(latest_notification.message, f'Оголошення {listing.title} створене')
+        self.assertEqual(latest_notification.related_object_id, listing.id)
+        self.assertEqual(latest_notification.related_object_type, 'listing')
