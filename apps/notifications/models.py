@@ -13,6 +13,7 @@ class Notification(TimeModel):
     - PAYMENT: Платіж отриманий/повернутий
     - MESSAGE: Повідомлення від адміністратора
     - SYSTEM: Системні сповіщення
+    - LISTING: Події, пов'язані з оголошеннями
     """
 
     NOTIFICATION_TYPES = [
@@ -21,6 +22,7 @@ class Notification(TimeModel):
         ('PAYMENT', 'Платіж'),
         ('MESSAGE', 'Повідомлення'),
         ('SYSTEM', 'Системне'),
+        ('LISTING', 'Оголошення'),
     ]
 
     user = models.ForeignKey(
