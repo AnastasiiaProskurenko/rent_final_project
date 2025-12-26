@@ -1,5 +1,7 @@
 from decimal import Decimal
 from datetime import timedelta
+import io
+from contextlib import redirect_stdout
 
 from django.db import IntegrityError
 from django.test import TestCase
