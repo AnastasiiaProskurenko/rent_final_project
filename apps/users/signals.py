@@ -5,6 +5,7 @@ from django.contrib.auth.models import Group
 from django.apps import apps
 
 User = apps.get_model('users', 'User')
+Notification = apps.get_model('notifications', 'Notification')
 
 @receiver(post_save, sender=User)
 def add_default_group(sender, instance, created, **kwargs):
@@ -17,3 +18,19 @@ def add_default_group(sender, instance, created, **kwargs):
     except Group.DoesNotExist:
 
         pass
+
+
+@receiver(post_save, sender=User)
+def create_user_creation_notification(sender, instance, created, **kwargs):
+    if not created:
+        return
+
+    title = f'User {instance.first_name} {instance.last_name} створений'
+
+    Notification.objects.create(
+        user=instance,
+        title=title,
+        message=title,
+        notification_type='SYSTEM',
+    )
+    print(title)
