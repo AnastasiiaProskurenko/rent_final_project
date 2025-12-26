@@ -1,5 +1,8 @@
 from decimal import Decimal
 from datetime import timedelta
+import io
+from contextlib import redirect_stdout
+import logging
 
 from django.db import IntegrityError
 from django.test import TestCase
@@ -12,6 +15,7 @@ from apps.common.enums import UserRole, PropertyType, CancellationPolicy
 from apps.common.models import Location
 from apps.listings.models import Listing, ListingPrice
 from apps.bookings.models import Booking
+from apps.notifications.models import Notification
 
 
 class UserVisibilityTests(TestCase):
@@ -221,6 +225,30 @@ class UserModelTests(TestCase):
         self.user.save(update_fields=['role'])
         reloaded = User.objects.get(pk=self.user.pk)
         self.assertEqual(reloaded.role, UserRole.OWNER)
+
+
+class UserSignalTests(TestCase):
+    def test_system_notification_created_on_user_creation(self):
+        buffer = io.StringIO()
+        logger_name = 'apps.users.signals'
+        with self.assertLogs(logger_name, level='INFO') as captured_logs, redirect_stdout(buffer):
+            user = User.objects.create_user(
+                username='notifieduser',
+                email='notify@example.com',
+                password='notify-pass',
+                first_name='Notify',
+                last_name='User',
+            )
+
+        notifications = Notification.objects.filter(user=user)
+
+        self.assertEqual(notifications.count(), 1)
+        notification = notifications.first()
+        self.assertEqual(notification.notification_type, 'SYSTEM')
+        self.assertEqual(notification.title, 'User Notify User створений')
+        self.assertEqual(notification.message, 'User Notify User створений')
+        self.assertIn('User Notify User створений', buffer.getvalue())
+        self.assertIn('User Notify User створений', '\n'.join(captured_logs.output))
 
 
 class UserProfileTests(TestCase):
