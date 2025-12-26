@@ -205,6 +205,14 @@ LOGGING = {
             'propagate': False,
         },
 
+        # Notifications app
+        'apps.notifications': {
+            'handlers': ['console', 'file_all', 'file_error'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+
+
         # API logger
         'api': {
             'handlers': ['console', 'file_api', 'file_error'],

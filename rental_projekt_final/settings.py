@@ -5,7 +5,7 @@ Django settings for rental_projekt_final project.
 from pathlib import Path
 import environ
 import os
-from .logging_config import LOGGING, get_logging_config
+from .logging_config import get_logging_config
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -21,7 +21,7 @@ DEBUG = env.bool('DEBUG', default=False)
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=[])
 
 ENVIRONMENT = os.environ.get('DJANGO_ENVIRONMENT', 'development')
-LOGGING = get_logging_config(ENVIRONMENT)
+LOGGING = get_logging_config('development')
 
 # Application definition
 INSTALLED_APPS = [
