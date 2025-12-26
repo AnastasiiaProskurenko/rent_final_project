@@ -9,9 +9,6 @@ from django.apps import apps
 User = apps.get_model('users', 'User')
 Notification = apps.get_model('notifications', 'Notification')
 
-logger = logging.getLogger(__name__)
-
-
 @receiver(post_save, sender=User)
 def add_default_group(sender, instance, created, **kwargs):
     if not created:
@@ -38,5 +35,3 @@ def create_user_creation_notification(sender, instance, created, **kwargs):
         message=title,
         notification_type='SYSTEM',
     )
-    logger.info(title)
-    print(title)
